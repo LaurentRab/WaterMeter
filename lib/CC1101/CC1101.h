@@ -83,6 +83,9 @@ public:
     // Configure pour EverBlu (2-FSK 2.4 kbps 433.82 MHz)
     void configureEverBlu();
 
+    // Change la fréquence porteuse à chaud (sans reconfigurer les autres registres)
+    void setFrequency(float mhz);
+
     // Passe en IDLE et vide les FIFOs
     void idle();
 

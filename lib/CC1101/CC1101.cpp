@@ -108,6 +108,20 @@ void CC1101::configureEverBlu()
 }
 
 // ============================================================
+//  Changement de fréquence à chaud
+// ============================================================
+
+void CC1101::setFrequency(float mhz)
+{
+    // FREQ = f_Hz / f_XOSC * 2^16  (f_XOSC = 26 MHz)
+    uint32_t reg = (uint32_t)(mhz * 1e6f / 26e6f * 65536.0f + 0.5f);
+    _writeReg(CC1101_FREQ2, (reg >> 16) & 0xFF);
+    _writeReg(CC1101_FREQ1, (reg >> 8)  & 0xFF);
+    _writeReg(CC1101_FREQ0,  reg        & 0xFF);
+    log_i("CC1101 fréquence : %.3f MHz (reg=0x%06lX)", mhz, reg);
+}
+
+// ============================================================
 //  IDLE
 // ============================================================
 

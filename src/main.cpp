@@ -37,9 +37,75 @@ static const MeterCfg METERS[2] = {
 //  setup()
 // ============================================================
 
+#ifdef TUNE_FREQUENCY
+// Scan des fréquences 433.750 → 433.900 MHz par pas de 0.005 MHz (5 kHz).
+// Lance pio run -e tune --target upload pour compiler ce mode.
+static void runTuneFrequency()
+{
+    // Utilise des pas entiers pour éviter la dérive flottante
+    // step 0 = 433.750, step 1 = 433.755, ..., step 30 = 433.900
+    const int   STEP_START = 0;
+    const int   STEP_END   = 30;   // (433.900 - 433.750) / 0.005 = 30
+    const float FREQ_BASE  = 433.750f;
+    const float FREQ_STEP  = 0.005f;
+
+    log_i("============================================");
+    log_i("  MODE TuneFrequency");
+    log_i("  Scan %.3f → %.3f MHz (pas 0.005)",
+          FREQ_BASE + STEP_START * FREQ_STEP,
+          FREQ_BASE + STEP_END   * FREQ_STEP);
+    log_i("  %d fréquences à tester", STEP_END - STEP_START + 1);
+    log_i("  Attention : compteurs actifs de 06:00 à 18:59");
+    log_i("============================================");
+
+    if (!radio.begin()) {
+        log_e("CC1101 non détecté — vérifier le câblage !");
+        return;
+    }
+
+    bool found = false;
+
+    for (int s = STEP_START; s <= STEP_END; s++) {
+        float freq = FREQ_BASE + s * FREQ_STEP;
+        log_i("--- Test %.3f MHz (%d/%d) ---", freq, s - STEP_START + 1, STEP_END - STEP_START + 1);
+
+        // Reconfigurer complètement puis surcharger la fréquence
+        radio.configureEverBlu();
+        radio.setFrequency(freq);
+
+        for (int i = 0; i < 2; i++) {
+            if (METERS[i].serial == 0) continue;
+
+            EverBluData data;
+            if (everblu.request(METERS[i].serial, METERS[i].year, data)) {
+                log_i(">>> ✓ SUCCES — fréquence OK : %.3f MHz <<<", freq);
+                log_i("    Compteur %d : %lu L | batterie=%u mois | RSSI=%d dBm",
+                      i + 1, data.liters, data.battery, data.rssi);
+                log_i("    → Mettre  #define CC1101_FREQ_MHZ  %.3ff  dans config.h", freq);
+                found = true;
+            } else {
+                log_i("  %.3f MHz — compteur %d : pas de réponse", freq, i + 1);
+            }
+        }
+    }
+
+    if (!found) {
+        log_w("Aucune réponse sur toute la plage — vérifier câblage, fenêtre horaire et serial/année.");
+    }
+
+    log_i("=== Scan terminé ===");
+}
+#endif  // TUNE_FREQUENCY
+
 void setup()
 {
     delay(5000);  // Laisse le temps à l'USB-JTAG de s'énumérer
+
+#ifdef TUNE_FREQUENCY
+    runTuneFrequency();
+    // Halt : pas de loop utile en mode tune
+    while (true) delay(1000);
+#else
     log_i("==============================");
     log_i("  WaterMeter v2.0  EverBlu");
     log_i("  ESP32-C3 + CC1101 433.82 MHz");
@@ -63,6 +129,7 @@ void setup()
 
     // Première lecture immédiate (sans attendre l'intervalle)
     lastReadMs[0] = lastReadMs[1] = millis() - (uint32_t)READ_INTERVAL_MIN * 60000UL;
+#endif  // TUNE_FREQUENCY
 }
 
 // ============================================================
@@ -71,6 +138,11 @@ void setup()
 
 void loop()
 {
+#ifdef TUNE_FREQUENCY
+    delay(1000);  // Unreachable — kept to satisfy linker
+    return;
+#endif
+
     mqtt.loop();
 
     uint32_t now = millis();

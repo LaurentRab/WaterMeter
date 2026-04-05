@@ -1,0 +1,43 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        // ---- Environnement normal (watermeter) ---------------
+        {
+            "label": "PlatformIO: Upload (watermeter)",
+            "type": "shell",
+            "command": "${env:HOME}/.platformio/penv/bin/pio run -e watermeter --target upload",
+            "group": { "kind": "build", "isDefault": true },
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": ["$platformio"]
+        },
+        // ---- Environnement TuneFrequency (tune) --------------
+        {
+            "label": "PlatformIO: Upload (tune)",
+            "type": "shell",
+            "command": "${env:HOME}/.platformio/penv/bin/pio run -e tune --target upload",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": ["$platformio"]
+        },
+        {
+            "label": "PlatformIO: Monitor (tune)",
+            "type": "shell",
+            "command": "${env:HOME}/.platformio/penv/bin/pio device monitor -e tune",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": [],
+            "isBackground": true
+        },
+        {
+            // Upload puis ouvre le moniteur série — tout en une seule action
+            "label": "PlatformIO: Upload + Monitor (tune)",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "PlatformIO: Upload (tune)",
+                "PlatformIO: Monitor (tune)"
+            ],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        }
+    ]
+}
