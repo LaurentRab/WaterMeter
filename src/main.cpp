@@ -165,7 +165,7 @@ void loop()
         if (everblu.request(METERS[i].serial, METERS[i].year, data)) {
             log_i("Compteur %d : %lu L | batterie=%u mois | RSSI=%d dBm | lectures=%u",
                   i + 1, data.liters, data.battery, data.rssi, data.readCount);
-            mqtt.publishEverBlu(METERS[i].serial, data);
+            mqtt.publishEverBlu(METERS[i].serial, data, LEAK_THRESHOLD_L);
         } else {
             log_w("Compteur %d : aucune réponse", i + 1);
         }
@@ -179,7 +179,7 @@ void loop()
     // --- Détection de fuite (toutes les 5 min) --------------
     if (now - lastLeakCheckMs > 300000UL) {
         lastLeakCheckMs = now;
-        mqtt.checkLeaks(LEAK_QUIET_HOUR_START, LEAK_QUIET_HOUR_END, LEAK_THRESHOLD_L);
+        mqtt.checkLeaks();
     }
 
     // --- Watchdog (toutes les heures) -----------------------

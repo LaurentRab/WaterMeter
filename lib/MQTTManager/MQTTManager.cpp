@@ -73,7 +73,12 @@ bool MQTTManager::_reconnect()
 //  Publication EverBlu
 // ============================================================
 
-void MQTTManager::publishEverBlu(uint32_t serial, const EverBluData& d)
+// Seuil de durée pour qualifier un saut nocturne (4 h).
+// Les compteurs répondent de 06:00 à 18:59 ; le saut normal entre lectures
+// est de READ_INTERVAL_MIN (~15 min). Tout écart > 4 h signale la nuit.
+static const uint32_t OVERNIGHT_GAP_MS = 4UL * 3600000UL;
+
+void MQTTManager::publishEverBlu(uint32_t serial, const EverBluData& d, uint32_t leakThresholdL)
 {
     if (!d.valid) return;
 
@@ -86,9 +91,34 @@ void MQTTManager::publishEverBlu(uint32_t serial, const EverBluData& d)
         return;
     }
 
-    uint32_t prev  = m->liters;
-    m->liters      = d.liters;
-    m->lastSeenMs  = millis();
+    uint32_t prevLiters = m->liters;
+    uint32_t now        = millis();
+    uint32_t elapsed    = (m->lastSeenMs > 0) ? (now - m->lastSeenMs) : 0;
+
+    // ---- Détection de fuite nocturne --------------------------
+    // On compare la consommation sur le saut nocturne uniquement,
+    // car les compteurs sont muets la nuit → aucune lecture entre
+    // ~19:00 et ~06:00. Un elapsed > 4 h identifie ce saut.
+    if (elapsed > OVERNIGHT_GAP_MS && prevLiters > 0 && leakThresholdL > 0) {
+        int32_t overnightL = (int32_t)(d.liters - prevLiters);
+        float   gapH       = elapsed / 3600000.0f;
+        log_i("Compteur %s — saut nuit %.1fh : %d L consommés", serialStr, gapH, overnightL);
+
+        bool leak = (overnightL > (int32_t)leakThresholdL);
+        if (leak) {
+            log_w("Compteur %s : %d L pendant la nuit (seuil=%lu L) — alerte fuite !",
+                  serialStr, overnightL, leakThresholdL);
+        }
+        if (leak != m->leakActive && _mqtt.connected()) {
+            char topic[80];
+            _buildTopic(topic, sizeof(topic), serialStr, "leak");
+            _mqtt.publish(topic, leak ? "ON" : "OFF", true);
+        }
+        m->leakActive = leak;
+    }
+
+    m->liters     = d.liters;
+    m->lastSeenMs = now;
 
     // Auto-discovery HA au premier passage
     if (!m->haDiscoverySent && _mqtt.connected()) {
@@ -112,7 +142,7 @@ void MQTTManager::publishEverBlu(uint32_t serial, const EverBluData& d)
     JsonDocument doc;
     doc["liters"]      = d.liters;
     doc["m3"]          = d.liters / 1000.0f;
-    doc["delta_l"]     = (int32_t)(d.liters - prev);
+    doc["delta_l"]     = (int32_t)(d.liters - prevLiters);
     doc["battery_months"] = d.battery;
     doc["read_count"]  = d.readCount;
     doc["rssi"]        = d.rssi;
@@ -126,37 +156,20 @@ void MQTTManager::publishEverBlu(uint32_t serial, const EverBluData& d)
 }
 
 // ============================================================
-//  Détection de fuite
+//  Re-publication de l'état de fuite (après reconnexion MQTT)
 // ============================================================
 
-void MQTTManager::checkLeaks(uint32_t quietStart, uint32_t quietEnd, uint32_t thresholdL)
+void MQTTManager::checkLeaks()
 {
-    struct tm t;
-    bool hasTime = getLocalTime(&t, 0);
-    int hour = hasTime ? t.tm_hour : -1;
-    bool inQuiet = (hour >= (int)quietStart && hour < (int)quietEnd);
+    if (!_mqtt.connected()) return;
 
     for (uint8_t i = 0; i < _meterCount; i++) {
         MeterState& m = _meters[i];
-        if (m.lastSeenMs == 0) continue;
+        if (!m.leakActive) continue;
 
-        int32_t delta = (int32_t)(m.liters - m.liters_prev);
-        bool leak = inQuiet && delta > (int32_t)thresholdL;
-
-        if (leak) log_w("Compteur %s : %d L en période calme — alerte fuite !", m.serial, delta);
-
-        if (leak != m.leakActive && _mqtt.connected()) {
-            char topic[80];
-            _buildTopic(topic, sizeof(topic), m.serial, "leak");
-            _mqtt.publish(topic, leak ? "ON" : "OFF", true);
-            m.leakActive = leak;
-        }
-
-        static uint32_t lastReset = 0;
-        if (millis() - lastReset > 3600000UL) {
-            m.liters_prev = m.liters;
-            lastReset     = millis();
-        }
+        char topic[80];
+        _buildTopic(topic, sizeof(topic), m.serial, "leak");
+        _mqtt.publish(topic, "ON", true);
     }
 }
 
@@ -272,7 +285,6 @@ MeterState* MQTTManager::_findOrCreate(const char* serial)
     strncpy(m->serial, serial, sizeof(m->serial) - 1);
     m->serial[sizeof(m->serial) - 1] = '\0';
     m->liters         = 0;
-    m->liters_prev    = 0;
     m->lastSeenMs     = 0;
     m->leakActive     = false;
     m->haDiscoverySent = false;

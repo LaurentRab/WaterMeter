@@ -20,7 +20,6 @@
 struct MeterState {
     char     serial[12];     // numéro affiché (ex: "356155")
     uint32_t liters;         // dernier volume connu (L)
-    uint32_t liters_prev;    // volume de référence (pour delta fuite)
     uint32_t lastSeenMs;     // millis() de la dernière lecture réussie
     bool     leakActive;
     bool     haDiscoverySent;
@@ -35,11 +34,12 @@ public:
     void begin(const char* ssid, const char* wifiPass);
     void loop();
 
-    // Publie les données d'un compteur EverBlu
-    void publishEverBlu(uint32_t serial, const EverBluData& d);
+    // Publie les données d'un compteur EverBlu.
+    // leakThresholdL : seuil de consommation nocturne (L) au-delà duquel une fuite est signalée.
+    void publishEverBlu(uint32_t serial, const EverBluData& d, uint32_t leakThresholdL);
 
-    // Détection de fuite sur période glissante
-    void checkLeaks(uint32_t quietStart, uint32_t quietEnd, uint32_t thresholdL);
+    // Re-publie l'état de fuite courant (utile après reconnexion MQTT).
+    void checkLeaks();
 
     // Watchdog : alerte si un compteur est silencieux
     void checkWatchdog(uint32_t timeoutMs);
