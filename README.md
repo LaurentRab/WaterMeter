@@ -52,7 +52,7 @@ Lecture automatique des compteurs d'eau **Itron EverBlu Cyble Enhanced (SEDIF / 
 #define CC1101_FREQ_MHZ  433.82f
 
 // Intervalle entre deux lectures (minutes)
-#define READ_INTERVAL_MIN  15
+#define READ_INTERVAL_MIN  60
 ```
 
 ## Compilation & flash
