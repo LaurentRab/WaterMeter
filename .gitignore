@@ -1,0 +1,6 @@
+.pio/
+.vscode/.cortex-debug*
+__pycache__/
+*.pyc
+include/config.h
+**/.DS_Store
