@@ -165,16 +165,11 @@ void EverBlu::_sendWakeupAndRequest(const uint8_t* reqBuf, uint8_t reqLen)
         _radio.writeFifo(reqBuf, reqLen);
     }
 
-    // Attendre que le FIFO TX se vide (= tous les octets transmis)
-    {
-        uint32_t t = millis();
-        while (_radio.txFifoFree() < 64) {
-            if (millis() - t > 2000) break;
-            delay(5);
-        }
-        // Laisser le dernier octet sortir du shift register
-        delay(10);
-    }
+    // Attendre la fin de la transmission.
+    // En mode infini le CC1101 passe en TX_UNDERFLOW quand le FIFO se vide,
+    // et TXBYTES n'est plus fiable dans cet état. On attend donc un temps
+    // calculé : reqLen octets à 2.4 kbps ≈ reqLen × 3.33 ms, + marge.
+    delay((uint32_t)reqLen * 4 + 20);
 
 tx_done:
     // Forcer IDLE (nécessaire car en mode infini le CC1101 est en TX_UNDERFLOW)
