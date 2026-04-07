@@ -165,16 +165,20 @@ void EverBlu::_sendWakeupAndRequest(const uint8_t* reqBuf, uint8_t reqLen)
         _radio.writeFifo(reqBuf, reqLen);
     }
 
-    // Attendre la fin de TX (MARCSTATE = IDLE)
+    // Attendre que le FIFO TX se vide (= tous les octets transmis)
     {
         uint32_t t = millis();
-        while (_radio.marcstate() != CC1101_STATE_IDLE) {
-            if (millis() - t > 5000) break;
-            delay(10);
+        while (_radio.txFifoFree() < 64) {
+            if (millis() - t > 2000) break;
+            delay(5);
         }
+        // Laisser le dernier octet sortir du shift register
+        delay(10);
     }
 
 tx_done:
+    // Forcer IDLE (nécessaire car en mode infini le CC1101 est en TX_UNDERFLOW)
+    _radio.idle();
     // Rétablir la config normale (sync word actif, longueur fixe)
     _radio.writeReg(CC1101_MDMCFG2, 0x02);
     _radio.writeReg(CC1101_PKTCTRL0, 0x00);
