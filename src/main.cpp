@@ -67,6 +67,7 @@ static void runTuneFrequency()
 
     for (int s = STEP_START; s <= STEP_END; s++) {
         float freq = FREQ_BASE + s * FREQ_STEP;
+        log_i("==========                                        ==========");
         log_i("--- Test %.3f MHz (%d/%d) ---", freq, s - STEP_START + 1, STEP_END - STEP_START + 1);
 
         // Reconfigurer complètement puis surcharger la fréquence
