@@ -130,7 +130,7 @@ uint8_t EverBlu::_buildRequest(uint32_t serial, uint8_t year, uint8_t* out)
 void EverBlu::_sendWakeupAndRequest(const uint8_t* reqBuf, uint8_t reqLen)
 {
     static const uint8_t WUP[8] = {0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
-    const uint8_t WUP_REPEATS = 77; // 77 × 8 octets ≈ 2 secondes à 2.4 kbps
+    const uint8_t WUP_REPEATS = 94; // 94 × 8 octets ≈ 2.5 secondes à 2.4 kbps
 
     // Mode TX : longueur infinie, sans sync word (porteuse brute de 0x55)
     _radio.idle();

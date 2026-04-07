@@ -6,7 +6,7 @@
 //  Protocole Itron EverBlu Cyble Enhanced
 //
 //  Séquence :
-//   1. TX wake-up : ~2s de 0x55 en 2-FSK 2.4 kbps
+//   1. TX wake-up : ~2.5s de 0x55 en 2-FSK 2.4 kbps
 //   2. TX requête : 39 octets (sync + payload encodé + CRC Kermit)
 //   3. RX ack     : 18 octets (sync 0x5550, timeout 150 ms)
 //   4. RX données : 4× oversampled (CC1101 à 9.6 kbps), timeout 700 ms
