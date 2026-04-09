@@ -97,10 +97,10 @@ void CC1101::configureEverBlu()
     _writeReg(CC1101_TEST1,    0x35);
     _writeReg(CC1101_TEST0,    0x09);
 
-    // PA table : 0 dBm (~10 mW)
+    // PA table : +10 dBm (~10 mW, puissance max CC1101)
     _select(); _waitMiso();
     SPI.transfer(0x7E | CC1101_BURST_FLAG);   // PATABLE burst write
-    SPI.transfer(0x60);
+    SPI.transfer(0xC0);  // +10 dBm max power (requis pour réveiller le compteur)
     for (int i = 1; i < 8; i++) SPI.transfer(0x00);
     _deselect();
 

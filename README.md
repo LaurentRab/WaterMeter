@@ -30,30 +30,13 @@ Lecture automatique des compteurs d'eau **Itron EverBlu Cyble Enhanced (SEDIF / 
 
 ## Configuration
 
-Éditer [`include/config.h`](include/config.h) avant la compilation :
+Copier le fichier d'exemple puis renseigner vos valeurs :
 
-```cpp
-// WiFi
-#define WIFI_SSID     "MonReseau"
-#define WIFI_PASSWORD "MonMotDePasse"
-
-// MQTT (broker Home Assistant)
-#define MQTT_SERVER    "192.168.x.x"
-#define MQTT_PORT      1883
-#define MQTT_USER      "mqtt-user"
-#define MQTT_PASS      "mqtt-pass"
-
-// Compteur 1 — numéro imprimé sur le module : [2 usine][6 serial][1 contrôle]
-// Ex : 843561553 → METER_1_SERIAL = 356155, METER_1_YEAR = 19
-#define METER_1_SERIAL  356155UL
-#define METER_1_YEAR    19
-
-// Fréquence (ajuster avec le mode TuneFrequency si aucune réponse)
-#define CC1101_FREQ_MHZ  433.82f
-
-// Intervalle entre deux lectures (minutes)
-#define READ_INTERVAL_MIN  60
+```bash
+cp include/config.example.h include/config.h
 ```
+
+Editer `include/config.h` avec vos identifiants WiFi, MQTT et les numéros de série de vos compteurs. Ce fichier est ignoré par git (secrets).
 
 ## Compilation & flash
 
@@ -106,7 +89,8 @@ Un warning est publié si un compteur ne répond pas pendant plus de `WATCHDOG_T
 
 ```
 ├── include/
-│   └── config.h          — paramètres utilisateur
+│   ├── config.example.h  — template de configuration (versionné)
+│   └── config.h          — paramètres utilisateur (ignoré par git)
 ├── lib/
 │   ├── CC1101/            — driver SPI bas niveau
 │   ├── EverBlu/           — protocole Itron EverBlu

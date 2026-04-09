@@ -55,7 +55,7 @@ bool EverBlu::request(uint32_t serial, uint8_t year, EverBluData& out)
     log_i("TX terminé — attente ACK");
 
     // ---- Phase RX 1 : ACK (sync 0x55 0x50, 18 octets) -----
-    if (!_receiveAck(250)) {
+    if (!_receiveAck(500)) {
         log_w("Pas d'ACK reçu (compteur absent, hors fenêtre, ou mauvais serial/année ?)");
         _radio.idle();
         return false;

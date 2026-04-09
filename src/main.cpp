@@ -4,6 +4,8 @@
 #include "EverBlu.h"
 #include "MQTTManager.h"
 
+#define TUNE_FREQUENCY  // Décommenter pour activer le mode de scan de fréquence (voir setup())
+
 // ============================================================
 //  WaterMeter — ESP32-C3 + CC1101
 //  Itron EverBlu Cyble Enhanced (SEDIF) → Home Assistant MQTT
@@ -67,7 +69,7 @@ static void runTuneFrequency()
 
     for (int s = STEP_START; s <= STEP_END; s++) {
         float freq = FREQ_BASE + s * FREQ_STEP;
-        log_i("==========                                        ==========");
+        log_i("========== *******  ==========");
         log_i("--- Test %.3f MHz (%d/%d) ---", freq, s - STEP_START + 1, STEP_END - STEP_START + 1);
 
         // Reconfigurer complètement puis surcharger la fréquence
