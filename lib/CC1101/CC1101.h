@@ -89,9 +89,14 @@ public:
     // Passe en IDLE et vide les FIFOs
     void idle();
 
+    // Test matériel complet : SPI loopback, FIFO, TX/RX transitions
+    // Retourne true si tout est OK.
+    bool selfTest();
+
     // ---- Interface bas niveau pour EverBlu ----------------
     void    writeReg(uint8_t addr, uint8_t val);
-    uint8_t readStatus(uint8_t addr);   // lit registre de statut (BURST)
+    uint8_t readReg(uint8_t addr);             // lit registre de config (single byte)
+    uint8_t readStatus(uint8_t addr);          // lit registre de statut (BURST)
     void    writeFifo(const uint8_t* data, uint8_t len);   // burst write TX FIFO
     uint8_t drainFifo(uint8_t* buf, uint8_t maxLen);       // burst read RX FIFO
     void    strobe(uint8_t cmd);

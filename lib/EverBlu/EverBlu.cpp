@@ -141,6 +141,14 @@ void EverBlu::_sendWakeupAndRequest(const uint8_t* reqBuf, uint8_t reqLen)
     _radio.writeFifo(WUP, 8);
     _radio.strobe(CC1101_STX);
 
+    // Vérifier que le CC1101 entre bien en TX
+    delay(2);
+    uint8_t txState = _radio.marcstate();
+    if (txState != CC1101_STATE_TX) {
+        log_e("CC1101 n'entre pas en TX (MARCSTATE=0x%02X) — problème matériel !", txState);
+        goto tx_done;
+    }
+
     // Refill du FIFO pendant le wake-up
     for (uint8_t rep = 1; rep < WUP_REPEATS; rep++) {
         // Attendre de la place dans le FIFO
@@ -194,6 +202,14 @@ bool EverBlu::_receiveAck(uint32_t timeoutMs)
     _radio.writeReg(CC1101_MDMCFG4, 0xF6);  // 2.4 kbps
     _radio.writeReg(CC1101_MDMCFG3, 0x83);
     _radio.strobe(CC1101_SRX);
+
+    // Vérifier que le CC1101 entre en RX
+    delay(2);
+    uint8_t rxState = _radio.marcstate();
+    if (rxState != CC1101_STATE_RX) {
+        log_e("CC1101 n'entre pas en RX (MARCSTATE=0x%02X) — problème matériel !", rxState);
+        return false;
+    }
 
     // Attendre 18 octets dans le FIFO
     uint32_t start = millis();

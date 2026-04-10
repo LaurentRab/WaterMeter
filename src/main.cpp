@@ -4,7 +4,8 @@
 #include "EverBlu.h"
 #include "MQTTManager.h"
 
-#define TUNE_FREQUENCY  // Décommenter pour activer le mode de scan de fréquence (voir setup())
+// Mode TuneFrequency : compiler avec  pio run -e tune  (défini via platformio.ini)
+// Ne PAS ajouter #define TUNE_FREQUENCY ici — utiliser l'environnement tune.
 
 // ============================================================
 //  WaterMeter — ESP32-C3 + CC1101
@@ -62,6 +63,11 @@ static void runTuneFrequency()
 
     if (!radio.begin()) {
         log_e("CC1101 non détecté — vérifier le câblage !");
+        return;
+    }
+    radio.configureEverBlu();
+    if (!radio.selfTest()) {
+        log_e("Self-test échoué — abandon du scan.");
         return;
     }
 
@@ -122,6 +128,7 @@ void setup()
         log_e("CC1101 non détecté — vérifier le câblage !");
     }
     radio.configureEverBlu();
+    radio.selfTest();
 
     // WiFi + MQTT
     mqtt.begin(WIFI_SSID, WIFI_PASSWORD);

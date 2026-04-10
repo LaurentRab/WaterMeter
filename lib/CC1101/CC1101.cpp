@@ -26,11 +26,23 @@ bool CC1101::begin()
     _select(); _waitMiso(); _strobe(CC1101_SRES); _waitMiso(); _deselect();
     delay(10);
 
+    // Vérification présence : lire PARTNUM (0x30) et VERSION (0x31)
+    uint8_t partnum = _readReg(0x30 | CC1101_BURST_FLAG);
     uint8_t version = _readReg(0x31 | CC1101_BURST_FLAG);
+
+    if (partnum == 0xFF && version == 0xFF) {
+        log_e("CC1101 NON DETECTE (SPI=0xFF) — MISO flottant, vérifier VCC et câblage !");
+        return false;
+    }
+    if (partnum == 0x00 && version == 0x00) {
+        log_e("CC1101 NON DETECTE (SPI=0x00) — vérifier VCC et câblage !");
+        return false;
+    }
+
     if (version != 0x14)
-        log_w("CC1101 version inattendue : 0x%02X (clone ?)", version);
+        log_w("CC1101 version inattendue : PARTNUM=0x%02X VERSION=0x%02X (clone ?)", partnum, version);
     else
-        log_i("CC1101 détecté OK (version 0x14)");
+        log_i("CC1101 détecté OK (PARTNUM=0x%02X VERSION=0x14)", partnum);
 
     return true;
 }
@@ -134,11 +146,117 @@ void CC1101::idle()
 }
 
 // ============================================================
+//  Self-test matériel
+// ============================================================
+
+bool CC1101::selfTest()
+{
+    log_i("--- CC1101 Self-Test ---");
+    int errors = 0;
+
+    // 1. SPI register write/readback
+    uint8_t saved = _readReg(CC1101_SYNC1);
+    _writeReg(CC1101_SYNC1, 0xAA);
+    uint8_t rb1 = _readReg(CC1101_SYNC1);
+    _writeReg(CC1101_SYNC1, 0x55);
+    uint8_t rb2 = _readReg(CC1101_SYNC1);
+    _writeReg(CC1101_SYNC1, saved);  // restore
+
+    if (rb1 != 0xAA || rb2 != 0x55) {
+        log_e("  FAIL  SPI loopback : écrit 0xAA→lu 0x%02X, écrit 0x55→lu 0x%02X", rb1, rb2);
+        errors++;
+    } else {
+        log_i("  OK    SPI registre write/readback");
+    }
+
+    // 2. MARCSTATE should be IDLE
+    idle();
+    uint8_t state = marcstate();
+    if (state != CC1101_STATE_IDLE) {
+        log_e("  FAIL  MARCSTATE attendu IDLE(0x01), lu 0x%02X", state);
+        errors++;
+    } else {
+        log_i("  OK    MARCSTATE = IDLE (0x01)");
+    }
+
+    // 3. TX FIFO : écrire 4 octets, vérifier TXBYTES
+    idle();
+    uint8_t probe[4] = {0x11, 0x22, 0x33, 0x44};
+    writeFifo(probe, 4);
+    uint8_t txb = readStatus(CC1101_TXBYTES) & 0x7F;
+    idle();  // flush
+    if (txb != 4) {
+        log_e("  FAIL  TX FIFO : écrit 4 octets, TXBYTES=%u", txb);
+        errors++;
+    } else {
+        log_i("  OK    TX FIFO (4 octets écrits, TXBYTES=4)");
+    }
+
+    // 4. Transition TX : vérifier que le CC1101 entre bien en TX
+    idle();
+    _writeReg(CC1101_MDMCFG2, 0x00);   // pas de sync word
+    _writeReg(CC1101_PKTCTRL0, 0x02);  // mode infini
+    uint8_t txdata[8] = {0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
+    writeFifo(txdata, 8);
+    _strobe(CC1101_STX);
+    delay(2);  // laisser le temps à la calibration + PLL lock
+    state = marcstate();
+    idle();
+    _writeReg(CC1101_MDMCFG2, 0x02);   // restaurer
+    _writeReg(CC1101_PKTCTRL0, 0x00);
+
+    if (state != CC1101_STATE_TX) {
+        log_e("  FAIL  TX transition : MARCSTATE=0x%02X (attendu TX=0x13)", state);
+        errors++;
+    } else {
+        log_i("  OK    TX transition (MARCSTATE=0x13)");
+    }
+
+    // 5. Transition RX + RSSI
+    idle();
+    _strobe(CC1101_SRX);
+    delay(10);  // laisser l'AGC se stabiliser
+    state = marcstate();
+    int8_t rssi = readRSSI();
+    idle();
+
+    if (state != CC1101_STATE_RX) {
+        log_e("  FAIL  RX transition : MARCSTATE=0x%02X (attendu RX=0x0D)", state);
+        errors++;
+    } else {
+        log_i("  OK    RX transition (MARCSTATE=0x0D) | bruit ambiant RSSI=%d dBm", rssi);
+    }
+
+    // 6. Vérification PA table readback
+    _select(); _waitMiso();
+    SPI.transfer(0x7E | CC1101_READ_FLAG | CC1101_BURST_FLAG);  // PATABLE burst read
+    uint8_t pa0 = SPI.transfer(0x00);
+    _deselect();
+
+    if (pa0 != 0xC0) {
+        log_e("  FAIL  PA table[0]=0x%02X (attendu 0xC0 = +10 dBm)", pa0);
+        errors++;
+    } else {
+        log_i("  OK    PA table[0]=0xC0 (+10 dBm)");
+    }
+
+    // Bilan
+    if (errors == 0) {
+        log_i("--- Self-Test PASSED (6/6) ---");
+    } else {
+        log_e("--- Self-Test FAILED (%d erreur(s)) — vérifier câblage et alimentation ---", errors);
+    }
+
+    return errors == 0;
+}
+
+// ============================================================
 //  Interface bas niveau publique (pour EverBlu)
 // ============================================================
 
 void CC1101::writeReg(uint8_t addr, uint8_t val)    { _writeReg(addr, val); }
 void CC1101::strobe(uint8_t cmd)                     { _strobe(cmd); }
+uint8_t CC1101::readReg(uint8_t addr)                { return _readReg(addr); }
 
 uint8_t CC1101::readStatus(uint8_t addr)
 {
