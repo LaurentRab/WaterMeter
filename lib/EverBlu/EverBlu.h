@@ -50,7 +50,7 @@ private:
     // ---- Phase RX ------------------------------------------
     // Réception trame Radian 2 phases : sync 0x5550 @ 2.4k (GDO0)
     // puis sync 0xFFF0 @ 9.6k (GDO0) + lecture données 4×
-    int _receiveFrame(uint8_t sizeBytes, uint32_t timeoutMs,
+    int _receiveFrame(uint8_t sizeBytes, uint32_t phase1Ms, uint32_t phase2Ms,
                       uint8_t* buf, uint16_t bufSize);
 
     // Entrée en RX avec attente MARCSTATE (comme cc1101_rec_mode)

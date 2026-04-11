@@ -56,7 +56,7 @@ bool EverBlu::request(uint32_t serial, uint8_t year, EverBluData& out)
 
     // ---- Phase RX 1 : ACK (0x12=18 octets décodés, timeout 150 ms) ---
     uint8_t rxBuf[800];
-    int ackLen = _receiveFrame(0x12, 150, rxBuf, sizeof(rxBuf));
+    int ackLen = _receiveFrame(0x12, 150, 200, rxBuf, sizeof(rxBuf));
     if (ackLen == 0) {
         log_w("Pas d'ACK reçu (compteur absent, hors fenêtre, ou mauvais serial/année ?)");
         _radio.idle();
@@ -65,7 +65,7 @@ bool EverBlu::request(uint32_t serial, uint8_t year, EverBluData& out)
     log_i("ACK reçu (%d octets bruts) — attente données", ackLen);
 
     // ---- Phase RX 2 : données (0x7C=124 octets décodés, timeout 700 ms) ---
-    int rawLen = _receiveFrame(0x7C, 700, rxBuf, sizeof(rxBuf));
+    int rawLen = _receiveFrame(0x7C, 150, 700, rxBuf, sizeof(rxBuf));
     if (rawLen == 0) {
         log_w("Pas de données reçues après ACK");
         _radio.idle();
@@ -223,7 +223,7 @@ void EverBlu::_enterRX()
 //  Retourne le nombre d'octets bruts reçus, ou 0 en cas de timeout
 // ============================================================
 
-int EverBlu::_receiveFrame(uint8_t sizeBytes, uint32_t timeoutMs,
+int EverBlu::_receiveFrame(uint8_t sizeBytes, uint32_t phase1Ms, uint32_t phase2Ms,
                             uint8_t* buf, uint16_t bufSize)
 {
     uint16_t rawFrameSize = (((uint16_t)sizeBytes * 11) / 8 + 1) * 4;
@@ -232,8 +232,6 @@ int EverBlu::_receiveFrame(uint8_t sizeBytes, uint32_t timeoutMs,
         log_w("Buffer trop petit (%u > %u)", rawFrameSize, bufSize);
         return 0;
     }
-
-    uint32_t tmo = 0;  // compteur ms cumulé (comme la référence)
 
     // ---- Phase 1 : détecter sync 0x5550 à 2.4 kbps --------
     _radio.strobe(CC1101_SFRX);
@@ -247,20 +245,15 @@ int EverBlu::_receiveFrame(uint8_t sizeBytes, uint32_t timeoutMs,
     _radio.writeReg(CC1101_PKTCTRL0, 0x00);   // Longueur fixe
     _enterRX();
 
-    // Attendre GDO0 (sync 0x5550 détecté)
-    while (!_radio.readGDO0() && tmo < timeoutMs) { delay(1); tmo++; }
-    if (tmo >= timeoutMs) return 0;
-    log_i("GDO0! (sync 2.4k, %lu ms)", tmo);
+    uint32_t dl1 = millis() + phase1Ms;
+    while (!_radio.readGDO0() && millis() < dl1) delay(1);
+    if (millis() >= dl1) return 0;
+    log_i("GDO0! (sync 2.4k, %lu ms)", phase1Ms - (dl1 - millis()));
 
     // Attendre GDO0 = LOW : fin du paquet de 1 octet → CC1101 stable
-    {
-        uint32_t t = millis();
-        while (_radio.readGDO0() && millis() - t < 50) delay(1);
-        tmo += millis() - t;
-    }
+    { uint32_t t = millis(); while (_radio.readGDO0() && millis() - t < 50) delay(1); }
     // Drainer le FIFO (1 octet reçu)
     { uint8_t dummy[8]; _radio.drainFifo(dummy, sizeof(dummy)); }
-    log_i("Sync 2.4k complet (%lu ms)", tmo);
 
     // ---- Phase 2 : données 4× oversampled (9.6 kbps, sync 0xFFF0) ---
     _radio.writeReg(CC1101_SYNC1,    0xFF);
@@ -271,15 +264,20 @@ int EverBlu::_receiveFrame(uint8_t sizeBytes, uint32_t timeoutMs,
     _radio.strobe(CC1101_SFRX);
     _enterRX();
 
-    // Attendre GDO0 (sync 0xFFF0 détecté = début données 4×)
-    while (!_radio.readGDO0() && tmo < timeoutMs) { delay(1); tmo++; }
-    if (tmo >= timeoutMs) return 0;
-    log_i("GDO0! (sync 9.6k, %lu ms)", tmo);
+    // Attendre GDO0 (sync 0xFFF0 détecté).
+    // GDO0 peut déjà être haut si le sync est arrivé pendant la reconfiguration
+    // (race condition normale) — dans ce cas on passe immédiatement.
+    uint32_t dl2 = millis() + phase2Ms;
+    if (!_radio.readGDO0()) {
+        while (!_radio.readGDO0() && millis() < dl2) delay(1);
+        if (millis() >= dl2) return 0;
+    }
+    log_i("GDO0! (sync 9.6k, %lu ms)", phase2Ms - (dl2 - millis()));
 
     // Lecture données brutes
     uint16_t totalBytes = 0;
-    while (totalBytes < rawFrameSize && tmo < timeoutMs) {
-        delay(5); tmo += 5;
+    while (totalBytes < rawFrameSize && millis() < dl2) {
+        delay(5);
         uint8_t avail = _radio.rxFifoBytes();
         if (avail > 0) {
             if (totalBytes + avail > bufSize)
