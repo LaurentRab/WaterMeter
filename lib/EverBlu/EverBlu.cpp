@@ -294,6 +294,7 @@ int EverBlu::_receiveFrame(uint8_t sizeBytes, uint32_t timeoutMs,
     _radio.idle();
 
     // Restaurer registres par défaut
+    _radio.writeReg(CC1101_MCSM1,    0x00);  // IDLE après RX/TX (valeur configureEverBlu)
     _radio.writeReg(CC1101_MDMCFG4,  0xF6);
     _radio.writeReg(CC1101_MDMCFG3,  0x83);
     _radio.writeReg(CC1101_PKTCTRL0, 0x00);
