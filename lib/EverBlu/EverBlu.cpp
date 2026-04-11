@@ -252,18 +252,15 @@ int EverBlu::_receiveFrame(uint8_t sizeBytes, uint32_t timeoutMs,
     if (tmo >= timeoutMs) return 0;
     log_i("GDO0! (sync 2.4k, %lu ms)", tmo);
 
-    // Lire le(s) octet(s) de sync dans le FIFO
-    uint8_t syncBytes = 0;
-    while (syncBytes == 0 && tmo < timeoutMs) {
-        delay(5); tmo += 5;
-        syncBytes = _radio.rxFifoBytes();
-        if (syncBytes > 0) {
-            uint8_t dummy[8];
-            _radio.drainFifo(dummy, (syncBytes > 8) ? 8 : syncBytes);
-        }
+    // Attendre GDO0 = LOW : fin du paquet de 1 octet → CC1101 stable
+    {
+        uint32_t t = millis();
+        while (_radio.readGDO0() && millis() - t < 50) delay(1);
+        tmo += millis() - t;
     }
-    if (tmo >= timeoutMs) return 0;
-    log_i("1er sync reçu (%u octets)", syncBytes);
+    // Drainer le FIFO (1 octet reçu)
+    { uint8_t dummy[8]; _radio.drainFifo(dummy, sizeof(dummy)); }
+    log_i("Sync 2.4k complet (%lu ms)", tmo);
 
     // ---- Phase 2 : données 4× oversampled (9.6 kbps, sync 0xFFF0) ---
     _radio.writeReg(CC1101_SYNC1,    0xFF);
