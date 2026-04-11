@@ -298,6 +298,11 @@ int8_t CC1101::readRSSI()
     return _rssiRaw2dBm(readStatus(CC1101_RSSI));
 }
 
+bool CC1101::readGDO0()
+{
+    return digitalRead(_gdo0) == HIGH;
+}
+
 // ============================================================
 //  SPI bas niveau
 // ============================================================

@@ -106,6 +106,7 @@ public:
     uint8_t marcstate();     // état courant (CC1101_STATE_*)
 
     int8_t  readRSSI();
+    bool    readGDO0();       // true si GDO0 est HIGH (sync word détecté)
 
 private:
     uint8_t _csn, _gdo0;

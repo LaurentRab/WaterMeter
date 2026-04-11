@@ -8,9 +8,10 @@
 //  Séquence :
 //   1. TX wake-up : ~2.5s de 0x55 en 2-FSK 2.4 kbps
 //   2. TX requête : 39 octets (sync + payload encodé + CRC Kermit)
-//   3. RX ack     : 18 octets (sync 0x5550, timeout 150 ms)
-//   4. RX données : 4× oversampled (CC1101 à 9.6 kbps), timeout 700 ms
+//   3. RX ack     : 2 phases (sync 0x5550 @ 2.4k → sync 0xFFF0 @ 9.6k), timeout 150 ms
+//   4. RX données : 2 phases (idem), timeout 700 ms
 //
+//  Détection sync par pin GDO0 (IOCFG0=0x06)
 //  Contrainte : répond uniquement entre 06:00 et 18:59
 //
 //  Basé sur le reverse-engineering de hallard/psykokwak
@@ -47,12 +48,17 @@ private:
     uint8_t _buildRequest(uint32_t serial, uint8_t year, uint8_t* out);
 
     // ---- Phase RX ------------------------------------------
-    bool _receiveAck(uint32_t timeoutMs);
-    bool _receiveData(uint8_t* buf, uint8_t& len, uint32_t timeoutMs);
+    // Réception trame Radian 2 phases : sync 0x5550 @ 2.4k (GDO0)
+    // puis sync 0xFFF0 @ 9.6k (GDO0) + lecture données 4×
+    int _receiveFrame(uint8_t sizeBytes, uint32_t timeoutMs,
+                      uint8_t* buf, uint16_t bufSize);
+
+    // Entrée en RX avec attente MARCSTATE (comme cc1101_rec_mode)
+    void _enterRX();
 
     // ---- Décodage ------------------------------------------
     // Décode un buffer 4× oversampled avec encodage série start/stop
-    bool _decodeResponse(const uint8_t* raw, uint8_t rawLen,
+    bool _decodeResponse(const uint8_t* raw, uint16_t rawLen,
                          uint8_t* out, uint8_t& outLen);
 
     // Extrait les valeurs du buffer décodé
