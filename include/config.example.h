@@ -55,7 +55,11 @@
 #define CC1101_CSN    5
 #define CC1101_SCK    6
 #define CC1101_MOSI   7
-#define CC1101_MISO   8
+#define CC1101_MISO   10   // GPIO8 reserve a la LED integree
+
+// --- LED integree (bleue) ------------------------------------
+// GPIO8 = LED bleue de l'ESP32-C3 Super Mini (active LOW)
+#define LED_PIN       8
 
 // --- Detection de fuite -------------------------------------
 // Consommation nocturne maximale toleree (litres).

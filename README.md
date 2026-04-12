@@ -11,15 +11,18 @@ Lecture automatique des compteurs d'eau **Itron EverBlu Cyble Enhanced (SEDIF / 
 
 ### Câblage CC1101 ↔ ESP32-C3
 
-| CC1101 | ESP32-C3 |
-|--------|----------|
-| GDO0   | GPIO 4   |
-| CSN    | GPIO 5   |
-| SCK    | GPIO 6   |
-| MOSI   | GPIO 7   |
-| MISO   | GPIO 8   |
-| VCC    | 3.3 V    |
-| GND    | GND      |
+| CC1101 | ESP32-C3 | Notes |
+|--------|----------|-------|
+| GDO0   | GPIO 4   | |
+| CSN    | GPIO 5   | |
+| SCK    | GPIO 6   | |
+| MOSI   | GPIO 7   | |
+| MISO   | **GPIO 10**  | GPIO 8 réservé à la LED intégrée |
+| VCC    | 3.3 V    | |
+| GND    | GND      | |
+
+> **Note câblage** : GPIO 8 est la LED bleue intégrée de l'ESP32-C3 Super Mini (active LOW).
+> Le fil MISO du CC1101 doit être connecté sur **GPIO 10** (et non GPIO 8).
 
 ## Protocole
 
