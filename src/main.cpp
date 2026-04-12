@@ -58,17 +58,9 @@ static const MeterCfg METERS[METER_COUNT] = {
 static void ledOn()  { digitalWrite(LED_PIN, LOW);  }
 static void ledOff() { digitalWrite(LED_PIN, HIGH); }
 
-// N blinks à 1 Hz (500 ms ON / 500 ms OFF)
+// N blinks bloquants à 1 Hz — utilisé uniquement dans TUNE_LED_TEST
 static void ledBlink(int n) {
-    for (int i = 0; i < n; i++) {
-        ledOn();  delay(500);
-        ledOff(); delay(500);
-    }
-}
-
-// Heartbeat : 1 bref blink toutes les 2 s (attente / scan en cours)
-static void ledHeartbeat() {
-    ledOn(); delay(100); ledOff(); delay(1900);
+    for (int i = 0; i < n; i++) { ledOn(); delay(500); ledOff(); delay(500); }
 }
 
 // ============================================================
@@ -82,60 +74,80 @@ struct TuneResult {
     EverBluData data;
 };
 
+// État global du mode Tune (machine à états dans loop())
+enum TunePhase : uint8_t { TUNE_WAIT, TUNE_SCAN, TUNE_DONE };
+static TunePhase  _tunePhase              = TUNE_WAIT;
+static TuneResult _tuneResults[METER_COUNT];
+
 // ============================================================
-//  Boucle LED résultat (tourne indéfiniment après le scan)
+//  showResultLed() — non-bloquant, appelé depuis loop()
 //
 //  N blinks lents = N compteurs trouvés
-//  Si fréquences différentes : 1 flash court après les blinks
-//  0 trouvé : clignotement rapide continu 5 Hz
+//  + flash court  = fréquences différentes entre compteurs
+//  5 Hz continu   = aucun compteur trouvé
 // ============================================================
 
-static void ledResultLoop(const TuneResult* results) {
-    int   foundCount = 0;
-    bool  sameFreq   = true;
-    float firstFreq  = 0.0f;
+static void showResultLed(const TuneResult* results) {
+    // Calculé une seule fois au premier appel
+    static bool computed   = false;
+    static int  foundCount = 0;
+    static bool sameFreq   = true;
 
-    for (int i = 0; i < METER_COUNT; i++) {
-        if (!results[i].found) continue;
-        foundCount++;
-        if (firstFreq == 0.0f) firstFreq = results[i].freqMhz;
-        else if (fabsf(results[i].freqMhz - firstFreq) > 0.001f) sameFreq = false;
+    if (!computed) {
+        float firstFreq = 0.0f;
+        for (int i = 0; i < METER_COUNT; i++) {
+            if (!results[i].found) continue;
+            foundCount++;
+            if (firstFreq == 0.0f) firstFreq = results[i].freqMhz;
+            else if (fabsf(results[i].freqMhz - firstFreq) > 0.001f) sameFreq = false;
+        }
+        log_i("LED résultat : %d/%d trouvé(s)%s", foundCount, METER_COUNT,
+              foundCount > 1 ? (sameFreq ? " (même fréq.)" : " (fréq. diff.)") : "");
+        computed = true;
     }
 
-    log_i("=== LED résultat : %d/%d trouvé(s)%s ===", foundCount, METER_COUNT,
-          foundCount > 1 ? (sameFreq ? " — même fréq." : " — fréq. diff.") : "");
+    static int      phase      = 0;  // 0=blink_on 1=blink_off 2=gap 3=flash_on 4=flash_off 5=pause
+    static int      blinkDone  = 0;
+    static uint32_t nextMs     = 0;
 
-    while (true) {
-        if (foundCount == 0) {
-            // Aucune réponse → 5 Hz continu
-            ledOn(); delay(100); ledOff(); delay(100);
-        } else {
-            ledBlink(foundCount);
-            if (!sameFreq) {
-                // Flash court = "fréquences différentes"
-                delay(200);
-                ledOn(); delay(150); ledOff();
-            }
-            delay(3000);
-        }
+    uint32_t now = millis();
+    if (now < nextMs) return;
+
+    if (foundCount == 0) {
+        // 5 Hz : toggle toutes les 100 ms
+        static bool on = false;
+        on = !on; on ? ledOn() : ledOff();
+        nextMs = now + 100;
+        return;
+    }
+
+    switch (phase) {
+    case 0: ledOn();                nextMs = now + 500; phase = 1; break;
+    case 1:
+        ledOff();                   nextMs = now + 500;
+        if (++blinkDone < foundCount) { phase = 0; }
+        else { blinkDone = 0; phase = sameFreq ? 5 : 2; }
+        break;
+    case 2:                         nextMs = now + 200; phase = 3; break;  // gap
+    case 3: ledOn();                nextMs = now + 150; phase = 4; break;  // flash
+    case 4: ledOff();               nextMs = now;       phase = 5; break;
+    case 5:                         nextMs = now + 3000; phase = 0; break; // pause
     }
 }
 
 // ============================================================
-//  Publication MQTT des résultats du scan
+//  publishTuneResults() — MQTT après scan
 // ============================================================
 
 static void publishTuneResults(const TuneResult* results) {
     char topic[80], payload[256];
-
     char timestamp[32] = "unknown";
     struct tm t;
     if (getLocalTime(&t, 0))
         strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S", &t);
 
     int foundCount = 0;
-    for (int i = 0; i < METER_COUNT; i++)
-        if (results[i].found) foundCount++;
+    for (int i = 0; i < METER_COUNT; i++) if (results[i].found) foundCount++;
 
     mqtt.publish("watermeter/tune/status",
                  foundCount > 0 ? "complete_found" : "complete_not_found", true);
@@ -150,7 +162,6 @@ static void publishTuneResults(const TuneResult* results) {
 
         snprintf(topic, sizeof(topic), "watermeter/tune/%s/found", serial);
         mqtt.publish(topic, results[i].found ? "true" : "false", true);
-
         if (!results[i].found) continue;
 
         snprintf(topic, sizeof(topic), "watermeter/tune/%s/freq_mhz", serial);
@@ -161,132 +172,28 @@ static void publishTuneResults(const TuneResult* results) {
         snprintf(payload, sizeof(payload), "%d", (int)results[i].rssi);
         mqtt.publish(topic, payload, true);
 
-        // Publier aussi la consommation sur le topic normal
         mqtt.publishEverBlu(METERS[i].serial, results[i].data, 0);
     }
-
     log_i("Résultats publiés → watermeter/tune/");
 }
 
 // ============================================================
-//  runTuneFrequency()
-//
-//  1. WiFi + NTP + MQTT
-//  2. (opt.) test séquences LED si TUNE_LED_TEST
-//  3. Init CC1101
-//  4. Attente fenêtre TUNE_HOUR_START–TUNE_HOUR_END / TUNE_DAYS_MASK
-//  5. Scan 433.750–433.900 MHz, arrêt anticipé si tous trouvés
-//  6. Publication MQTT
-//  7. Boucle LED résultat (infinie)
+//  runTuneScan() — bloquant mais court (~4s/freq × 31 = ~2 min)
+//  Chaque delay() interne yielde le scheduler FreeRTOS.
 // ============================================================
 
-static void runTuneFrequency()
-{
+static void runTuneScan(TuneResult* results) {
     const int   STEP_START = 0;
-    const int   STEP_END   = 30;   // (433.900 - 433.750) / 0.005 = 30
+    const int   STEP_END   = 30;
     const float FREQ_BASE  = 433.750f;
     const float FREQ_STEP  = 0.005f;
 
-    pinMode(LED_PIN, OUTPUT);
-    ledOff();
-
-    log_i("============================================");
-    log_i("  MODE TuneFrequency");
-    log_i("  Scan %.3f → %.3f MHz (pas 0.005)",
-          FREQ_BASE + STEP_START * FREQ_STEP, FREQ_BASE + STEP_END * FREQ_STEP);
-    log_i("  %d fréquences | fenêtre %02d:00–%02d:00 | masque jours 0x%02X",
-          STEP_END - STEP_START + 1, TUNE_HOUR_START, TUNE_HOUR_END, TUNE_DAYS_MASK);
-    log_i("============================================");
-
-    // WiFi + MQTT + NTP
-    mqtt.begin(WIFI_SSID, WIFI_PASSWORD);
-    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
-    {
-        struct tm t;
-        uint32_t ts = millis();
-        while (!getLocalTime(&t, 0) && millis() - ts < 10000) delay(500);
-        if (getLocalTime(&t, 0))
-            log_i("NTP synchro : %02d:%02d:%02d", t.tm_hour, t.tm_min, t.tm_sec);
-        else
-            log_w("NTP non synchro");
-    }
-
-    // ---- Test séquences LED (environnement tune_led_test) ----
-#ifdef TUNE_LED_TEST
-    log_i("=== TEST LED : toutes les séquences ===");
-    log_i("1. Heartbeat (attente)...");
-    for (int i = 0; i < 4; i++) ledHeartbeat();
-
-    log_i("2. Aucune réponse (5 Hz rapide)...");
-    { uint32_t t0 = millis(); while (millis() - t0 < 3000) { ledOn(); delay(100); ledOff(); delay(100); } }
-    delay(1000);
-
-    for (int n = 1; n <= METER_COUNT; n++) {
-        log_i("3.%d. %d compteur(s), même fréquence...", n, n);
-        for (int r = 0; r < 3; r++) { ledBlink(n); delay(3000); }
-
-        log_i("3.%d. %d compteur(s), fréquences différentes...", n, n);
-        for (int r = 0; r < 3; r++) {
-            ledBlink(n);
-            delay(200); ledOn(); delay(150); ledOff();
-            delay(3000);
-        }
-    }
-    log_i("=== TEST LED terminé — lancement du scan ===");
-#endif
-
-    // ---- Init CC1101 ----------------------------------------
-    if (!radio.begin()) {
-        log_e("CC1101 non détecté — abandon.");
-        // Signal d'erreur : SOS (3 courts, 3 longs, 3 courts)
-        while (true) {
-            for (int i=0;i<3;i++){ledOn();delay(200);ledOff();delay(200);}
-            for (int i=0;i<3;i++){ledOn();delay(600);ledOff();delay(200);}
-            for (int i=0;i<3;i++){ledOn();delay(200);ledOff();delay(200);}
-            delay(2000);
-        }
-    }
-    radio.configureEverBlu();
-    if (!radio.selfTest()) {
-        log_e("Self-test CC1101 échoué — abandon.");
-        while (true) { ledOn(); delay(100); ledOff(); delay(100); }  // 5 Hz
-    }
-
-    // ---- Attente fenêtre de scan ----------------------------
-    {
-        struct tm t;
-        uint32_t lastLogMs = 0;
-        bool inWindow = false;
-
-        while (!inWindow) {
-            mqtt.loop();
-            if (getLocalTime(&t, 0)) {
-                bool rightTime = (t.tm_hour >= TUNE_HOUR_START && t.tm_hour < TUNE_HOUR_END);
-                bool rightDay  = ((TUNE_DAYS_MASK >> t.tm_wday) & 1);
-                inWindow = rightTime && rightDay;
-            }
-            if (!inWindow) {
-                if (millis() - lastLogMs > 60000UL) {
-                    struct tm tc; getLocalTime(&tc, 0);
-                    log_i("Attente fenêtre %02d:00–%02d:00 (actuellement %02d:%02d)",
-                          TUNE_HOUR_START, TUNE_HOUR_END, tc.tm_hour, tc.tm_min);
-                    lastLogMs = millis();
-                }
-                ledHeartbeat();  // 1 blink lent toutes les 2 s
-            }
-        }
-        log_i("Fenêtre atteinte : %02d:%02d — démarrage scan", t.tm_hour, t.tm_min);
-        mqtt.publish("watermeter/tune/status", "scanning", true);
-    }
-
-    // ---- Scan -----------------------------------------------
-    TuneResult results[METER_COUNT] = {};
+    log_i("=== Scan démarré : %.3f–%.3f MHz ===",
+          FREQ_BASE, FREQ_BASE + STEP_END * FREQ_STEP);
 
     for (int s = STEP_START; s <= STEP_END; s++) {
         float freq = FREQ_BASE + s * FREQ_STEP;
-        log_i("--- %.3f MHz (%d/%d) ---", freq, s - STEP_START + 1, STEP_END - STEP_START + 1);
-
-        // Bref blink = "alive"
+        log_i("--- %.3f MHz (%d/%d) ---", freq, s+1, STEP_END+1);
         ledOn(); delay(50); ledOff();
 
         radio.configureEverBlu();
@@ -294,31 +201,82 @@ static void runTuneFrequency()
 
         for (int i = 0; i < METER_COUNT; i++) {
             if (METERS[i].serial == 0 || results[i].found) continue;
-
             EverBluData data;
             if (everblu.request(METERS[i].serial, METERS[i].year, data)) {
-                log_i(">>> SUCCES compteur %d : %.3f MHz | %lu L | batt=%u | RSSI=%d <<<",
+                log_i(">>> SUCCES compteur %d : %.3f MHz | %lu L | batt=%u | RSSI=%d",
                       i+1, freq, data.liters, data.battery, data.rssi);
                 log_i("    → METER_%d_FREQ_MHZ  %.3ff", i+1, freq);
-                results[i].found   = true;
-                results[i].freqMhz = freq;
-                results[i].rssi    = data.rssi;
-                results[i].data    = data;
+                results[i] = { true, freq, data.rssi, data };
             }
         }
 
-        // Arrêt anticipé si tous les compteurs ont répondu
         bool allFound = true;
         for (int i = 0; i < METER_COUNT; i++)
             if (METERS[i].serial != 0 && !results[i].found) { allFound = false; break; }
-        if (allFound) { log_i("Tous les compteurs trouvés — scan terminé."); break; }
+        if (allFound) { log_i("Tous trouvés — scan terminé."); break; }
+    }
+}
+
+// ============================================================
+//  Initialisation Tune dans setup() — NE PAS BLOQUER
+// ============================================================
+
+static void initTune() {
+    memset(_tuneResults, 0, sizeof(_tuneResults));
+    pinMode(LED_PIN, OUTPUT);
+    ledOff();
+
+    log_i("============================================");
+    log_i("  MODE TuneFrequency");
+    log_i("  Scan 433.750–433.900 MHz | fenêtre %02d:00–%02d:00 | masque 0x%02X",
+          TUNE_HOUR_START, TUNE_HOUR_END, TUNE_DAYS_MASK);
+    log_i("============================================");
+
+    mqtt.begin(WIFI_SSID, WIFI_PASSWORD);
+    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
+    {
+        struct tm t; uint32_t ts = millis();
+        while (!getLocalTime(&t, 0) && millis() - ts < 10000) delay(500);
+        struct tm tc;
+        if (getLocalTime(&tc, 0)) log_i("NTP : %02d:%02d:%02d", tc.tm_hour, tc.tm_min, tc.tm_sec);
+        else                      log_w("NTP non synchro");
     }
 
-    // ---- Publication MQTT -----------------------------------
-    publishTuneResults(results);
+#ifdef TUNE_LED_TEST
+    log_i("=== TEST LED ===");
+    log_i("Heartbeat (attente)...");
+    for (int i = 0; i < 4; i++) { ledOn(); delay(100); ledOff(); delay(1900); }
 
-    // ---- Boucle LED résultat (infinie) ----------------------
-    ledResultLoop(results);
+    log_i("Aucune réponse (5 Hz)...");
+    { uint32_t t0=millis(); while(millis()-t0<3000){ledOn();delay(100);ledOff();delay(100);} }
+    delay(1000);
+
+    for (int n = 1; n <= METER_COUNT; n++) {
+        log_i("%d compteur(s), même fréquence...", n);
+        for (int r = 0; r < 3; r++) { ledBlink(n); delay(3000); }
+        log_i("%d compteur(s), fréquences différentes...", n);
+        for (int r = 0; r < 3; r++) {
+            ledBlink(n); delay(200); ledOn(); delay(150); ledOff(); delay(3000);
+        }
+    }
+    log_i("=== TEST LED terminé ===");
+#endif
+
+    if (!radio.begin()) {
+        log_e("CC1101 non détecté — signal SOS LED");
+        while (true) {  // SOS : ... --- ...
+            for (int i=0;i<3;i++){ledOn();delay(200);ledOff();delay(200);}
+            for (int i=0;i<3;i++){ledOn();delay(600);ledOff();delay(200);}
+            for (int i=0;i<3;i++){ledOn();delay(200);ledOff();delay(200);}
+            delay(2000);
+        }
+    }
+    radio.configureEverBlu();
+    radio.selfTest();
+
+    mqtt.publish("watermeter/tune/status", "waiting", true);
+    log_i("Attente de la fenêtre %02d:00–%02d:00...", TUNE_HOUR_START, TUNE_HOUR_END);
+    // Retour immédiat — l'attente se fait dans loop()
 }
 
 #endif  // TUNE_FREQUENCY
@@ -328,9 +286,8 @@ void setup()
     delay(5000);  // Laisse le temps à l'USB-JTAG de s'énumérer
 
 #ifdef TUNE_FREQUENCY
-    runTuneFrequency();
-    // Halt : pas de loop utile en mode tune
-    while (true) delay(1000);
+    initTune();
+    return;
 #else
     log_i("==============================");
     log_i("  WaterMeter v2.0  EverBlu");
@@ -377,7 +334,45 @@ void setup()
 void loop()
 {
 #ifdef TUNE_FREQUENCY
-    delay(1000);  // Unreachable — kept to satisfy linker
+    mqtt.loop();
+
+    switch (_tunePhase) {
+
+    case TUNE_WAIT: {
+        // Heartbeat LED non-bloquant : 100 ms ON toutes les 2 s
+        static uint32_t _heartbeatNext = 0;
+        static bool     _heartbeatOn   = false;
+        uint32_t now = millis();
+        if (now >= _heartbeatNext) {
+            _heartbeatOn = !_heartbeatOn;
+            _heartbeatOn ? ledOn() : ledOff();
+            _heartbeatNext = now + (_heartbeatOn ? 100 : 1900);
+        }
+
+        // Vérification fenêtre horaire
+        struct tm t;
+        if (!getLocalTime(&t, 0)) break;  // NTP pas encore synchro
+
+        bool inHour = (t.tm_hour >= TUNE_HOUR_START && t.tm_hour < TUNE_HOUR_END);
+        bool inDay  = (TUNE_DAYS_MASK >> t.tm_wday) & 1;
+        if (inHour && inDay) {
+            ledOff();
+            log_i("Fenêtre atteinte (%02d:%02d) — lancement du scan", t.tm_hour, t.tm_min);
+            _tunePhase = TUNE_SCAN;
+        }
+        break;
+    }
+
+    case TUNE_SCAN:
+        runTuneScan(_tuneResults);
+        publishTuneResults(_tuneResults);
+        _tunePhase = TUNE_DONE;
+        break;
+
+    case TUNE_DONE:
+        showResultLed(_tuneResults);
+        break;
+    }
     return;
 #endif
 
