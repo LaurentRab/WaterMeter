@@ -53,8 +53,13 @@
 // --- Frequence CC1101 ----------------------------------------
 // Valeur nominale EverBlu : 433.82 MHz
 // Chaque compteur peut avoir une legere derive : [433.76 - 433.89]
-// Ajuste avec le mode TuneFrequency si aucune reponse.
-#define CC1101_FREQ_MHZ  433.82f
+// Utiliser le mode TuneFrequency pour trouver la frequence exacte de chaque compteur.
+#define CC1101_FREQ_MHZ  433.82f   // frequence par defaut
+
+#define METER_1_FREQ_MHZ  433.82f  // frequence compteur 1 (ajuster apres TuneFrequency)
+#define METER_2_FREQ_MHZ  433.82f  // frequence compteur 2 (ajuster apres TuneFrequency)
+// #define METER_3_FREQ_MHZ  433.82f
+// #define METER_4_FREQ_MHZ  433.82f
 
 // --- Interrogation -------------------------------------------
 // Intervalle entre deux lectures (minutes)

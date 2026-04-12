@@ -30,17 +30,18 @@ uint32_t lastWatchdogMs     = 0;
 struct MeterCfg {
     uint32_t serial;
     uint8_t  year;
+    float    freqMhz;  // fréquence de réponse propre au compteur
 };
 static const MeterCfg METERS[METER_COUNT] = {
-    { METER_1_SERIAL, METER_1_YEAR },
+    { METER_1_SERIAL, METER_1_YEAR, METER_1_FREQ_MHZ },
 #if METER_COUNT >= 2
-    { METER_2_SERIAL, METER_2_YEAR },
+    { METER_2_SERIAL, METER_2_YEAR, METER_2_FREQ_MHZ },
 #endif
 #if METER_COUNT >= 3
-    { METER_3_SERIAL, METER_3_YEAR },
+    { METER_3_SERIAL, METER_3_YEAR, METER_3_FREQ_MHZ },
 #endif
 #if METER_COUNT >= 4
-    { METER_4_SERIAL, METER_4_YEAR },
+    { METER_4_SERIAL, METER_4_YEAR, METER_4_FREQ_MHZ },
 #endif
 };
 
@@ -211,7 +212,9 @@ void loop()
             continue;
         }
 
-        log_i("--- Interrogation compteur %d (serial=%lu) ---", i + 1, METERS[i].serial);
+        log_i("--- Interrogation compteur %d (serial=%lu, %.3f MHz) ---",
+              i + 1, METERS[i].serial, METERS[i].freqMhz);
+        radio.setFrequency(METERS[i].freqMhz);
 
         EverBluData data;
         if (everblu.request(METERS[i].serial, METERS[i].year, data)) {
