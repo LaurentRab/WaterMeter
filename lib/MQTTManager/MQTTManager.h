@@ -4,6 +4,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include "../EverBlu/EverBlu.h"
+#include "config.h"
 
 // ============================================================
 //  Gestion WiFi + MQTT avec Home Assistant Auto-Discovery
@@ -57,7 +58,7 @@ private:
     const char*  _clientId;
     const char*  _baseTopic;
 
-    MeterState   _meters[2];
+    MeterState   _meters[METER_COUNT];
     uint8_t      _meterCount;
     uint32_t     _lastReconnectAttempt;
 

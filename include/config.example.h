@@ -19,6 +19,11 @@
 #define MQTT_CLIENT_ID "watermeter_esp32"
 #define MQTT_BASE_TOPIC "watermeter"
 
+// --- Nombre de compteurs ------------------------------------
+// Adapter METER_COUNT au nombre reel de compteurs (1 a 4).
+// Definir autant de paires METER_N_SERIAL / METER_N_YEAR que necessaire.
+#define METER_COUNT  2
+
 // --- Compteurs Itron EverBlu Cyble Enhanced ------------------
 //
 //  Le numero imprime sur le module suit le format :
@@ -38,6 +43,12 @@
 
 #define METER_2_SERIAL  0UL        // 0 = desactive
 #define METER_2_YEAR    0
+
+// Decommenter et renseigner pour 3 ou 4 compteurs :
+// #define METER_3_SERIAL  0UL
+// #define METER_3_YEAR    0
+// #define METER_4_SERIAL  0UL
+// #define METER_4_YEAR    0
 
 // --- Frequence CC1101 ----------------------------------------
 // Valeur nominale EverBlu : 433.82 MHz

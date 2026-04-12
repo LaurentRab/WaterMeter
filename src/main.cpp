@@ -22,7 +22,7 @@ MQTTManager mqtt(MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASS,
                  MQTT_CLIENT_ID, MQTT_BASE_TOPIC);
 
 // Dernière interrogation réussie par compteur (millis)
-uint32_t lastReadMs[2]      = {0, 0};
+uint32_t lastReadMs[METER_COUNT] = {};
 uint32_t lastLeakCheckMs    = 0;
 uint32_t lastWatchdogMs     = 0;
 
@@ -31,9 +31,17 @@ struct MeterCfg {
     uint32_t serial;
     uint8_t  year;
 };
-static const MeterCfg METERS[2] = {
+static const MeterCfg METERS[METER_COUNT] = {
     { METER_1_SERIAL, METER_1_YEAR },
+#if METER_COUNT >= 2
     { METER_2_SERIAL, METER_2_YEAR },
+#endif
+#if METER_COUNT >= 3
+    { METER_3_SERIAL, METER_3_YEAR },
+#endif
+#if METER_COUNT >= 4
+    { METER_4_SERIAL, METER_4_YEAR },
+#endif
 };
 
 // ============================================================
@@ -107,7 +115,7 @@ static void runTuneFrequency()
         radio.configureEverBlu();
         radio.setFrequency(freq);
 
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < METER_COUNT; i++) {
             if (METERS[i].serial == 0) continue;
 
             EverBluData data;
@@ -193,7 +201,7 @@ void loop()
     uint32_t intervalMs = (uint32_t)READ_INTERVAL_MIN * 60000UL;
 
     // --- Interrogation périodique de chaque compteur --------
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < METER_COUNT; i++) {
         if (METERS[i].serial == 0) continue;          // Compteur non configuré
         if (now - lastReadMs[i] < intervalMs) continue; // Pas encore l'heure
 

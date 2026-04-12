@@ -280,7 +280,7 @@ MeterState* MQTTManager::_findOrCreate(const char* serial)
     for (uint8_t i = 0; i < _meterCount; i++) {
         if (strcmp(_meters[i].serial, serial) == 0) return &_meters[i];
     }
-    if (_meterCount >= 2) return nullptr;
+    if (_meterCount >= METER_COUNT) return nullptr;
     MeterState* m = &_meters[_meterCount++];
     strncpy(m->serial, serial, sizeof(m->serial) - 1);
     m->serial[sizeof(m->serial) - 1] = '\0';
