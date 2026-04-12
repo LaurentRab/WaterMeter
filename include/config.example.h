@@ -64,7 +64,7 @@
 // --- Interrogation -------------------------------------------
 // Intervalle entre deux lectures (minutes)
 // Le compteur ne repond qu'entre 06:00 et 18:59 !
-#define READ_INTERVAL_MIN  60
+#define READ_INTERVAL_MIN  240
 
 // --- Mode TuneFrequency : fenetre de scan -------------------
 // La carte attend que l'heure et le jour correspondent, puis scanne.

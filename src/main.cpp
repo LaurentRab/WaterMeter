@@ -321,7 +321,7 @@ void setup()
     for (int i = 0; i < METER_COUNT; i++)
         log_i("Compteur %d : serial=%lu année=%u freq=%.3f MHz",
               i+1, METERS[i].serial, METERS[i].year, METERS[i].freqMhz);
-    log_i("Intervalle : %u min | Fenêtre : 06:00–18:59", READ_INTERVAL_MIN);
+    log_i("Intervalle : %u min (%.1f h) | Fenêtre : 06:00–18:59", READ_INTERVAL_MIN, READ_INTERVAL_MIN / 60.0f);
 
     // Première lecture immédiate (sans attendre l'intervalle)
     for (int i = 0; i < METER_COUNT; i++)
