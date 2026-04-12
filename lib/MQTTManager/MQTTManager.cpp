@@ -39,6 +39,12 @@ void MQTTManager::begin(const char* ssid, const char* wifiPass)
     _reconnect();
 }
 
+bool MQTTManager::publish(const char* topic, const char* payload, bool retained)
+{
+    if (!_mqtt.connected()) return false;
+    return _mqtt.publish(topic, payload, retained);
+}
+
 void MQTTManager::loop()
 {
     if (!_mqtt.connected()) {

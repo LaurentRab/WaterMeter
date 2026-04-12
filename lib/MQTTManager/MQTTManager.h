@@ -47,6 +47,9 @@ public:
 
     bool connected() { return _mqtt.connected(); }
 
+    // Publication directe (pour les topics tune/)
+    bool publish(const char* topic, const char* payload, bool retained = false);
+
 private:
     WiFiClient   _wifiClient;
     PubSubClient _mqtt;

@@ -66,6 +66,13 @@
 // Le compteur ne repond qu'entre 06:00 et 18:59 !
 #define READ_INTERVAL_MIN  60
 
+// --- Mode TuneFrequency : fenetre de scan -------------------
+// La carte attend que l'heure et le jour correspondent, puis scanne.
+#define TUNE_HOUR_START   10      // heure de debut (incluse)
+#define TUNE_HOUR_END     16      // heure de fin (exclue)
+//                          _  Sam Ven Jeu Mer Mar Lun Dim
+#define TUNE_DAYS_MASK  0b00111110  // Lun-Ven
+
 // --- Broches CC1101 <-> ESP32-C3 Super Mini ------------------
 #define CC1101_GDO0   4
 #define CC1101_CSN    5
