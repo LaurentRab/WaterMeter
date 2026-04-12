@@ -238,7 +238,11 @@ static void initTune() {
         struct tm t; uint32_t ts = millis();
         while (!getLocalTime(&t, 0) && millis() - ts < 10000) delay(500);
         struct tm tc;
-        if (getLocalTime(&tc, 0)) log_i("NTP : %02d:%02d:%02d", tc.tm_hour, tc.tm_min, tc.tm_sec);
+        if (getLocalTime(&tc, 0)) {
+            char buf[32];
+            strftime(buf, sizeof(buf), "%a %d/%m/%Y %H:%M:%S", &tc);
+            log_i("NTP : %s", buf);
+        }
         else                      log_w("NTP non synchro");
     }
 
@@ -312,10 +316,13 @@ void setup()
         struct tm t;
         uint32_t ts = millis();
         while (!getLocalTime(&t, 0) && millis() - ts < 10000) delay(500);
-        if (getLocalTime(&t, 0))
-            log_i("NTP synchro : %02d:%02d:%02d", t.tm_hour, t.tm_min, t.tm_sec);
-        else
+        char buf[32];
+        if (getLocalTime(&t, 0)) {
+            strftime(buf, sizeof(buf), "%a %d/%m/%Y %H:%M:%S", &t);
+            log_i("NTP synchro : %s", buf);
+        } else {
             log_w("NTP non synchro — fenêtre horaire ignorée jusqu'à synchro");
+        }
     }
 
     for (int i = 0; i < METER_COUNT; i++)
