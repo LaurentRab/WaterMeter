@@ -61,6 +61,31 @@ static void runTuneFrequency()
     log_i("  Attention : compteurs actifs de 06:00 à 18:59");
     log_i("============================================");
 
+    // Connexion WiFi pour synchro NTP (nécessaire pour vérifier la fenêtre horaire)
+    log_i("Connexion WiFi...");
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    {
+        uint32_t t0 = millis();
+        while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) delay(500);
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        log_i("WiFi connecté — synchro NTP...");
+        configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
+        struct tm t;
+        uint32_t ts = millis();
+        while (!getLocalTime(&t, 0) && millis() - ts < 10000) delay(500);
+        if (getLocalTime(&t, 0))
+            log_i("NTP synchro : %02d:%02d:%02d", t.tm_hour, t.tm_min, t.tm_sec);
+        else
+            log_w("NTP non synchro — heure inconnue");
+    } else {
+        log_w("WiFi ÉCHEC — fenêtre horaire non vérifiable");
+    }
+
+    if (!EverBlu::withinTimeWindow())
+        log_w("!!! Hors fenêtre 06:00–18:59 — le compteur ne répondra pas !!!");
+
     if (!radio.begin()) {
         log_e("CC1101 non détecté — vérifier le câblage !");
         return;
@@ -120,9 +145,6 @@ void setup()
     log_i("  ESP32-C3 + CC1101 433.82 MHz");
     log_i("==============================");
 
-    // NTP pour la détection de fuite et la fenêtre horaire
-    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");  // UTC+1 (ajuste selon saison)
-
     // Initialisation CC1101
     if (!radio.begin()) {
         log_e("CC1101 non détecté — vérifier le câblage !");
@@ -130,8 +152,20 @@ void setup()
     radio.configureEverBlu();
     radio.selfTest();
 
-    // WiFi + MQTT
+    // WiFi + MQTT (WiFi nécessaire avant configTime)
     mqtt.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    // NTP : configurer après connexion WiFi
+    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");  // UTC+1 (ajuste selon saison)
+    {
+        struct tm t;
+        uint32_t ts = millis();
+        while (!getLocalTime(&t, 0) && millis() - ts < 10000) delay(500);
+        if (getLocalTime(&t, 0))
+            log_i("NTP synchro : %02d:%02d:%02d", t.tm_hour, t.tm_min, t.tm_sec);
+        else
+            log_w("NTP non synchro — fenêtre horaire ignorée jusqu'à synchro");
+    }
 
     log_i("Compteur 1 : serial=%lu année=%u", METERS[0].serial, METERS[0].year);
     log_i("Compteur 2 : serial=%lu année=%u", METERS[1].serial, METERS[1].year);
