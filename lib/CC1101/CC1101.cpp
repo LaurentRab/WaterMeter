@@ -256,9 +256,9 @@ bool CC1101::selfTest()
 
 void CC1101::writeReg(uint8_t addr, uint8_t val)    { _writeReg(addr, val); }
 void CC1101::strobe(uint8_t cmd)                     { _strobe(cmd); }
-uint8_t CC1101::readReg(uint8_t addr)                { return _readReg(addr); }
+uint8_t CC1101::readReg(uint8_t addr)    const       { return _readReg(addr); }
 
-uint8_t CC1101::readStatus(uint8_t addr)
+uint8_t CC1101::readStatus(uint8_t addr) const
 {
     return _readReg(addr | CC1101_BURST_FLAG);
 }
@@ -277,28 +277,28 @@ uint8_t CC1101::drainFifo(uint8_t* buf, uint8_t maxLen)
     return n;
 }
 
-uint8_t CC1101::txFifoFree()
+uint8_t CC1101::txFifoFree() const
 {
     uint8_t used = readStatus(CC1101_TXBYTES) & 0x7F;
     return (used >= 64) ? 0 : (64 - used);
 }
 
-uint8_t CC1101::rxFifoBytes()
+uint8_t CC1101::rxFifoBytes() const
 {
     return readStatus(CC1101_RXBYTES) & 0x7F;
 }
 
-uint8_t CC1101::marcstate()
+uint8_t CC1101::marcstate() const
 {
     return readStatus(CC1101_MARCSTATE) & 0x1F;
 }
 
-int8_t CC1101::readRSSI()
+int8_t CC1101::readRSSI() const
 {
     return _rssiRaw2dBm(readStatus(CC1101_RSSI));
 }
 
-bool CC1101::readGDO0()
+bool CC1101::readGDO0() const
 {
     return digitalRead(_gdo0) == HIGH;
 }
@@ -307,16 +307,16 @@ bool CC1101::readGDO0()
 //  SPI bas niveau
 // ============================================================
 
-void CC1101::_select()   { digitalWrite(_csn, LOW); }
-void CC1101::_deselect() { digitalWrite(_csn, HIGH); }
+void CC1101::_select()   const { digitalWrite(_csn, LOW); }
+void CC1101::_deselect() const { digitalWrite(_csn, HIGH); }
 
-void CC1101::_waitMiso()
+void CC1101::_waitMiso() const
 {
     uint32_t t = millis() + 100;
     while (digitalRead(_miso >= 0 ? _miso : MISO) && millis() < t);
 }
 
-uint8_t CC1101::_readReg(uint8_t addr)
+uint8_t CC1101::_readReg(uint8_t addr) const
 {
     _select(); _waitMiso();
     SPI.transfer(addr | CC1101_READ_FLAG);
@@ -341,7 +341,7 @@ void CC1101::_writeBurst(uint8_t addr, const uint8_t* data, uint8_t len)
     _deselect();
 }
 
-void CC1101::_readBurst(uint8_t addr, uint8_t* buf, uint8_t len)
+void CC1101::_readBurst(uint8_t addr, uint8_t* buf, uint8_t len) const
 {
     _select(); _waitMiso();
     SPI.transfer(addr | CC1101_READ_FLAG | CC1101_BURST_FLAG);
@@ -356,7 +356,7 @@ void CC1101::_strobe(uint8_t cmd)
     _deselect();
 }
 
-int8_t CC1101::_rssiRaw2dBm(uint8_t raw)
+int8_t CC1101::_rssiRaw2dBm(uint8_t raw)  // static — pas de qualificateur const ici
 {
     if (raw >= 128) return (int8_t)((raw - 256) / 2) - 74;
     return (int8_t)(raw / 2) - 74;

@@ -296,7 +296,9 @@ void setup()
 
     // Initialisation CC1101
     if (!radio.begin()) {
-        log_e("CC1101 non détecté — vérifier le câblage !");
+        log_e("CC1101 non détecté — redémarrage dans 5 s");
+        delay(5000);
+        ESP.restart();
     }
     radio.configureEverBlu();
     radio.selfTest();
