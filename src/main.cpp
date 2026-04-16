@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include "config.h"
-#include "secrets.h"
 #include "CC1101.h"
 #include "EverBlu.h"
 #include "MQTTManager.h"

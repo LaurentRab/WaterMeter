@@ -99,3 +99,7 @@
 
 // Watchdog : log warning si un compteur est silencieux > N ms
 #define WATCHDOG_TIMEOUT_MS  7200000UL  // 2 heures
+
+// --- OTA (Over-The-Air updates) -----------------------------
+// Doit correspondre à secrets.ini → [secrets] ota_password
+#define OTA_PASSWORD  "change_me"

@@ -8,5 +8,4 @@
 # Fichiers de configuration contenant les secrets (WiFi, MQTT, serials, OTA)
 # Copier les fichiers .example correspondants et renseigner vos valeurs
 include/config.h
-include/secrets.h
 secrets.ini
