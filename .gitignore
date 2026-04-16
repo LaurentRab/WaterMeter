@@ -5,6 +5,8 @@
 .vscode/ipch
 .DS_Store
 
-# Fichier de configuration contenant les secrets (WiFi, MQTT, serials)
-# Copier include/config.example.h → include/config.h et renseigner vos valeurs
+# Fichiers de configuration contenant les secrets (WiFi, MQTT, serials, OTA)
+# Copier les fichiers .example correspondants et renseigner vos valeurs
 include/config.h
+include/secrets.h
+secrets.ini

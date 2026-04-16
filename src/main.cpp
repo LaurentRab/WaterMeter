@@ -1,5 +1,7 @@
 #include <Arduino.h>
+#include <ArduinoOTA.h>
 #include "config.h"
+#include "secrets.h"
 #include "CC1101.h"
 #include "EverBlu.h"
 #include "MQTTManager.h"
@@ -48,6 +50,8 @@ static const MeterCfg METERS[METER_COUNT] = {
     { METER_4_SERIAL, METER_4_YEAR, METER_4_FREQ_MHZ },
 #endif
 };
+
+static void setupOTA();  // défini après le bloc TUNE_FREQUENCY
 
 // ============================================================
 //  setup()
@@ -199,14 +203,16 @@ static void runTuneScan(TuneResult* results) {
     log_i("=== Scan démarré : %.3f–%.3f MHz ===",
           FREQ_BASE, FREQ_BASE + STEP_END * FREQ_STEP);
 
+    radio.configureEverBlu();  // une seule fois — setFrequency() suffit ensuite
+
     for (int s = STEP_START; s <= STEP_END; s++) {
         float freq = FREQ_BASE + s * FREQ_STEP;
         log_i("--- %.3f MHz (%d/%d) ---", freq, s+1, STEP_END+1);
         ledOn(); delay(50); ledOff();
 
-        radio.configureEverBlu();
         radio.setFrequency(freq);
 
+        mqtt.loop();  // maintient le keep-alive MQTT pendant le scan bloquant
         for (int i = 0; i < METER_COUNT; i++) {
             if (METERS[i].serial == 0 || results[i].found) continue;
             EverBluData data;
@@ -284,7 +290,15 @@ static void initTune() {
         }
     }
     radio.configureEverBlu();
-    radio.selfTest();
+    if (!radio.selfTest()) {
+        log_e("Self-Test FAILED — signal SOS LED");
+        while (true) {
+            for (int i=0;i<3;i++){ledOn();delay(200);ledOff();delay(200);}
+            for (int i=0;i<3;i++){ledOn();delay(600);ledOff();delay(200);}
+            for (int i=0;i<3;i++){ledOn();delay(200);ledOff();delay(200);}
+            delay(2000);
+        }
+    }
 
     mqtt.publish("watermeter/tune/status", "waiting", true);
     log_i("Attente de la fenêtre %02d:00–%02d:00...", TUNE_HOUR_START, TUNE_HOUR_END);
@@ -292,6 +306,46 @@ static void initTune() {
 }
 
 #endif  // TUNE_FREQUENCY
+
+// ============================================================
+//  OTA — commun aux deux modes (Tune et production)
+//  Appelé après mqtt.begin() uniquement si WiFi est connecté.
+// ============================================================
+
+static void setupOTA()
+{
+    ArduinoOTA.setHostname(MQTT_CLIENT_ID);
+    ArduinoOTA.setPassword(OTA_PASSWORD);
+
+    ArduinoOTA.onStart([]() {
+        const char* type = (ArduinoOTA.getCommand() == U_FLASH) ? "firmware" : "filesystem";
+        log_i("OTA : début — %s", type);
+    });
+    ArduinoOTA.onEnd([]() {
+        log_i("OTA : terminé — redémarrage");
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        static uint8_t lastPct = 0xFF;
+        uint8_t pct = (uint8_t)(progress * 100u / total);
+        if (pct != lastPct) { log_i("OTA : %3u%%", pct); lastPct = pct; }
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+        const char* msg;
+        switch (error) {
+            case OTA_AUTH_ERROR:    msg = "authentification (mauvais mot de passe)"; break;
+            case OTA_BEGIN_ERROR:   msg = "begin (flash insuffisant ?)";              break;
+            case OTA_CONNECT_ERROR: msg = "connexion";                                break;
+            case OTA_RECEIVE_ERROR: msg = "réception";                                break;
+            case OTA_END_ERROR:     msg = "fin (vérification échouée)";               break;
+            default:                msg = "inconnue";                                 break;
+        }
+        log_e("OTA erreur [%u] : %s", error, msg);
+    });
+
+    ArduinoOTA.begin();
+    log_i("OTA prêt — hostname : %s.local | IP : %s", MQTT_CLIENT_ID,
+          WiFi.localIP().toString().c_str());
+}
 
 void setup()
 {
@@ -353,6 +407,15 @@ void setup()
 
 void loop()
 {
+    // Initialise OTA dès que WiFi est disponible, même si le boot s'est fait sans réseau
+    static bool otaReady = false;
+    if (!otaReady && WiFi.status() == WL_CONNECTED) {
+        setupOTA();
+        otaReady = true;
+    }
+
+    ArduinoOTA.handle();
+
 #ifdef TUNE_FREQUENCY
     mqtt.loop();
 
@@ -385,6 +448,9 @@ void loop()
 
     case TUNE_SCAN:
         runTuneScan(_tuneResults);
+        mqtt.loop();  // déclenche la reconnexion si MQTT a coupé pendant le scan
+        delay(500);   // laisse le temps à la reconnexion de s'établir
+        mqtt.loop();
         publishTuneResults(_tuneResults);
         _tunePhase = TUNE_DONE;
         break;

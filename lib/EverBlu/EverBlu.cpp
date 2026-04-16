@@ -62,11 +62,18 @@ bool EverBlu::request(uint32_t serial, uint8_t year, EverBluData& out)
     uint8_t rxBuf[800];
     int ackLen = _receiveFrame(0x12, 150, 200, rxBuf, sizeof(rxBuf));
     if (ackLen == 0) {
-        log_w("Pas d'ACK reçu (compteur absent, hors fenêtre, ou mauvais serial/année ?)");
-        _radio.idle();
-        return false;
+        log_w("Pas d'ACK — retry unique...");
+        _sendWakeupAndRequest(reqBuf, reqLen);
+        ackLen = _receiveFrame(0x12, 150, 200, rxBuf, sizeof(rxBuf));
+        if (ackLen == 0) {
+            log_w("Pas d'ACK après retry (compteur absent, hors fenêtre, ou mauvais serial/année ?)");
+            _radio.idle();
+            return false;
+        }
+        log_i("ACK reçu après retry (%d octets bruts)", ackLen);
+    } else {
+        log_i("ACK reçu (%d octets bruts) — attente données", ackLen);
     }
-    log_i("ACK reçu (%d octets bruts) — attente données", ackLen);
 
     // ---- Phase RX 2 : données (0x7C=124 octets décodés, timeout 700 ms) ---
     int rawLen = _receiveFrame(0x7C, 150, 700, rxBuf, sizeof(rxBuf));
@@ -300,9 +307,13 @@ int EverBlu::_receiveFrame(uint8_t sizeBytes, uint32_t phase1Ms, uint32_t phase2
     }
     log_i("GDO0! (sync 9.6k, %lu ms)", phase2Ms - (dl2 - millis()));
 
+    // Deadline indépendante pour la collecte : le sync peut arriver tard,
+    // la fenêtre de lecture doit rester complète quelle que soit l'attente GDO0.
+    uint32_t dl2_data = millis() + phase2Ms;
+
     // Lecture données brutes
     uint16_t totalBytes = 0;
-    while (totalBytes < rawFrameSize && millis() < dl2) {
+    while (totalBytes < rawFrameSize && millis() < dl2_data) {
         delay(5);
         uint8_t avail = _radio.rxFifoBytes();
         if (avail > 0) {
@@ -394,12 +405,8 @@ bool EverBlu::_parseData(const uint8_t* d, uint8_t len, EverBluData& out)
 {
     if (len < EVERBLU_MIN_LEN) return false;
 
-    // Validation CRC avant extraction : toute corruption RF est détectée ici.
-    if (!_verifyCrc(d, len)) {
-        log_w("CRC réponse invalide (len=%u) — trame possiblement corrompue (bruit RF ?)", len);
-        // On continue malgré le CRC invalide pour ne pas perdre une lecture
-        // potentiellement correcte, mais le flag valid reste false jusqu'à la fin.
-    }
+    if (!_verifyCrc(d, len))
+        log_e("CRC invalide (len=%u) — données possiblement corrompues (bruit RF ?), publication quand même", len);
 
     // Volume en litres : uint32 little-endian
     out.liters = (uint32_t)d[EVERBLU_OFF_LITERS_0]
@@ -433,7 +440,7 @@ bool EverBlu::_verifyCrc(const uint8_t* data, uint8_t len)
     uint16_t received = ((uint16_t)data[len - 2] << 8) | data[len - 1];
 
     if (computed != received) {
-        log_d("CRC attendu=0x%04X reçu=0x%04X", computed, received);
+        log_e("CRC attendu=0x%04X reçu=0x%04X", computed, received);
         return false;
     }
     return true;

@@ -23,8 +23,12 @@ MQTTManager::MQTTManager(const char* broker, uint16_t port,
 
 void MQTTManager::begin(const char* ssid, const char* wifiPass)
 {
+    _ssid     = ssid;
+    _wifiPass = wifiPass;
+
     log_i("Connexion WiFi à %s", ssid);
     WiFi.mode(WIFI_STA);
+    WiFi.setMinSecurity(WIFI_AUTH_WPA2_PSK);  // WPA2/WPA3 mixte : force WPA2 pour éviter l'échec PMF
     WiFi.begin(ssid, wifiPass);
 
     uint32_t t = millis();
@@ -49,6 +53,15 @@ bool MQTTManager::publish(const char* topic, const char* payload, bool retained)
 
 void MQTTManager::loop()
 {
+    if (WiFi.status() != WL_CONNECTED) {
+        uint32_t now = millis();
+        if (now - _lastReconnectAttempt > 15000) {
+            _lastReconnectAttempt = now;
+            log_w("WiFi déconnecté — reconnexion à %s", _ssid);
+            WiFi.begin(_ssid, _wifiPass);  // reconnect() inopérant après échec initial
+        }
+        return;
+    }
     if (!_mqtt.connected()) {
         uint32_t now = millis();
         if (now - _lastReconnectAttempt > 5000) {
@@ -71,6 +84,8 @@ bool MQTTManager::_reconnect()
     if (ok) {
         log_i("MQTT connecté");
         _mqtt.publish(willTopic, "online", true);
+        for (uint8_t i = 0; i < _meterCount; i++)
+            _meters[i].haDiscoverySent = false;
     } else {
         log_e("MQTT échec (rc=%d)", _mqtt.state());
     }
@@ -150,7 +165,8 @@ void MQTTManager::publishEverBlu(uint32_t serial, const EverBluData& d, uint32_t
     JsonDocument doc;
     doc["liters"]      = d.liters;
     doc["m3"]          = d.liters / 1000.0f;
-    doc["delta_l"]     = (int32_t)(d.liters - prevLiters);
+    if (m->lastSeenMs > 0)
+        doc["delta_l"] = (int32_t)(d.liters - prevLiters);
     doc["battery_months"] = d.battery;
     doc["read_count"]  = d.readCount;
     doc["rssi"]        = d.rssi;

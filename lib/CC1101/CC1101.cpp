@@ -270,7 +270,13 @@ void CC1101::writeFifo(const uint8_t* data, uint8_t len)
 
 uint8_t CC1101::drainFifo(uint8_t* buf, uint8_t maxLen)
 {
-    uint8_t avail = readStatus(CC1101_RXBYTES) & 0x7F;
+    uint8_t raw = readStatus(CC1101_RXBYTES);
+    if (raw & 0x80) {
+        log_e("RXFIFO overflow — données corrompues, flush");
+        _strobe(CC1101_SFRX);
+        return 0;
+    }
+    uint8_t avail = raw & 0x7F;
     if (avail == 0) return 0;
     uint8_t n = (avail < maxLen) ? avail : maxLen;
     _readBurst(CC1101_RXFIFO, buf, n);
@@ -285,7 +291,12 @@ uint8_t CC1101::txFifoFree() const
 
 uint8_t CC1101::rxFifoBytes() const
 {
-    return readStatus(CC1101_RXBYTES) & 0x7F;
+    uint8_t raw = readStatus(CC1101_RXBYTES);
+    if (raw & 0x80) {
+        log_e("RXFIFO overflow détecté");
+        return 0;
+    }
+    return raw & 0x7F;
 }
 
 uint8_t CC1101::marcstate() const
@@ -312,8 +323,8 @@ void CC1101::_deselect() const { digitalWrite(_csn, HIGH); }
 
 void CC1101::_waitMiso() const
 {
-    uint32_t t = millis() + 100;
-    while (digitalRead(_miso >= 0 ? _miso : MISO) && millis() < t);
+    uint32_t start = millis();
+    while (digitalRead(_miso >= 0 ? _miso : MISO) && millis() - start < 100);
 }
 
 uint8_t CC1101::_readReg(uint8_t addr) const

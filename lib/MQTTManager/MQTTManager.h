@@ -66,6 +66,8 @@ private:
     const char*  _pass;
     const char*  _clientId;
     const char*  _baseTopic;
+    const char*  _ssid;
+    const char*  _wifiPass;
 
     MeterState   _meters[MQTT_MAX_METERS];  // tableau à capacité maximale fixe
     uint8_t      _maxMeters;               // nombre effectif configuré (≤ MQTT_MAX_METERS)
