@@ -4,7 +4,11 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include "../EverBlu/EverBlu.h"
-#include "config.h"
+// config.h n'est PAS inclus ici : le nombre de compteurs est passé
+// au constructeur, ce qui rend MQTTManager indépendant du projet hôte.
+
+// Capacité maximale absolue (limite matérielle du protocole EverBlu)
+static constexpr uint8_t MQTT_MAX_METERS = 4;
 
 // ============================================================
 //  Gestion WiFi + MQTT avec Home Assistant Auto-Discovery
@@ -28,9 +32,11 @@ struct MeterState {
 
 class MQTTManager {
 public:
+    // meterCount : nombre de compteurs configurés (1–MQTT_MAX_METERS)
     MQTTManager(const char* broker, uint16_t port,
                 const char* user, const char* password,
-                const char* clientId, const char* baseTopic);
+                const char* clientId, const char* baseTopic,
+                uint8_t meterCount);
 
     void begin(const char* ssid, const char* wifiPass);
     void loop();
@@ -61,8 +67,9 @@ private:
     const char*  _clientId;
     const char*  _baseTopic;
 
-    MeterState   _meters[METER_COUNT];
-    uint8_t      _meterCount;
+    MeterState   _meters[MQTT_MAX_METERS];  // tableau à capacité maximale fixe
+    uint8_t      _maxMeters;               // nombre effectif configuré (≤ MQTT_MAX_METERS)
+    uint8_t      _meterCount;              // nombre de slots utilisés (découverts au runtime)
     uint32_t     _lastReconnectAttempt;
 
     MeterState*  _findOrCreate(const char* serial);

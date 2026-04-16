@@ -4,9 +4,11 @@
 
 MQTTManager::MQTTManager(const char* broker, uint16_t port,
                          const char* user, const char* password,
-                         const char* clientId, const char* baseTopic)
+                         const char* clientId, const char* baseTopic,
+                         uint8_t meterCount)
     : _broker(broker), _port(port), _user(user), _pass(password),
       _clientId(clientId), _baseTopic(baseTopic),
+      _maxMeters(meterCount <= MQTT_MAX_METERS ? meterCount : MQTT_MAX_METERS),
       _meterCount(0), _lastReconnectAttempt(0)
 {
     _mqtt.setClient(_wifiClient);
@@ -286,7 +288,7 @@ MeterState* MQTTManager::_findOrCreate(const char* serial)
     for (uint8_t i = 0; i < _meterCount; i++) {
         if (strcmp(_meters[i].serial, serial) == 0) return &_meters[i];
     }
-    if (_meterCount >= METER_COUNT) return nullptr;
+    if (_meterCount >= _maxMeters) return nullptr;
     MeterState* m = &_meters[_meterCount++];
     strncpy(m->serial, serial, sizeof(m->serial) - 1);
     m->serial[sizeof(m->serial) - 1] = '\0';

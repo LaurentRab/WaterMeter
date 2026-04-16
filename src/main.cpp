@@ -19,12 +19,16 @@
 CC1101     radio(CC1101_CSN, CC1101_GDO0, CC1101_SCK, CC1101_MOSI, CC1101_MISO);
 EverBlu    everblu(radio);
 MQTTManager mqtt(MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASS,
-                 MQTT_CLIENT_ID, MQTT_BASE_TOPIC);
+                 MQTT_CLIENT_ID, MQTT_BASE_TOPIC, METER_COUNT);
 
 // Dernière interrogation réussie par compteur (millis)
 uint32_t lastReadMs[METER_COUNT] = {};
 uint32_t lastLeakCheckMs    = 0;
 uint32_t lastWatchdogMs     = 0;
+uint32_t lastMeterReadMs    = 0;  // millis() du dernier appel radio, tous compteurs confondus
+
+// Délai minimal entre deux compteurs consécutifs (évite le chevauchement RF)
+static constexpr uint32_t INTER_METER_DELAY_MS = 2000UL;
 
 // Structure des compteurs configurés
 struct MeterCfg {
@@ -88,24 +92,28 @@ static TuneResult _tuneResults[METER_COUNT];
 // ============================================================
 
 static void showResultLed(const TuneResult* results) {
-    // Calculé une seule fois au premier appel
-    static bool computed   = false;
-    static int  foundCount = 0;
-    static bool sameFreq   = true;
-
-    if (!computed) {
-        float firstFreq = 0.0f;
-        for (int i = 0; i < METER_COUNT; i++) {
-            if (!results[i].found) continue;
-            foundCount++;
-            if (firstFreq == 0.0f) firstFreq = results[i].freqMhz;
-            else if (fabsf(results[i].freqMhz - firstFreq) > 0.001f) sameFreq = false;
-        }
-        log_i("LED résultat : %d/%d trouvé(s)%s", foundCount, METER_COUNT,
-              foundCount > 1 ? (sameFreq ? " (même fréq.)" : " (fréq. diff.)") : "");
-        computed = true;
+    // Calcul systématique (max METER_COUNT itérations, trivial).
+    // Pas de cache statique : foundCount/sameFreq ne sont pas des états de l'animation.
+    int   foundCount = 0;
+    bool  sameFreq   = true;
+    float firstFreq  = 0.0f;
+    for (int i = 0; i < METER_COUNT; i++) {
+        if (!results[i].found) continue;
+        foundCount++;
+        if (firstFreq == 0.0f) firstFreq = results[i].freqMhz;
+        else if (fabsf(results[i].freqMhz - firstFreq) > 0.001f) sameFreq = false;
     }
 
+    // Log unique : ne spamme pas le moniteur série à chaque itération de loop()
+    static bool logged = false;
+    if (!logged) {
+        log_i("LED résultat : %d/%d trouvé(s)%s", foundCount, METER_COUNT,
+              foundCount > 1 ? (sameFreq ? " (même fréq.)" : " (fréq. diff.)") : "");
+        logged = true;
+    }
+
+    // État de l'animation LED — statics légitimes : représentent la progression
+    // de la séquence de clignotement entre deux appels successifs.
     static int      phase      = 0;  // 0=blink_on 1=blink_off 2=gap 3=flash_on 4=flash_off 5=pause
     static int      blinkDone  = 0;
     static uint32_t nextMs     = 0;
@@ -233,7 +241,7 @@ static void initTune() {
     log_i("============================================");
 
     mqtt.begin(WIFI_SSID, WIFI_PASSWORD);
-    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
+    configTzTime(TIMEZONE, "pool.ntp.org", "time.nist.gov");
     {
         struct tm t; uint32_t ts = millis();
         while (!getLocalTime(&t, 0) && millis() - ts < 10000) delay(500);
@@ -287,7 +295,9 @@ static void initTune() {
 
 void setup()
 {
-    delay(5000);  // Laisse le temps à l'USB-JTAG de s'énumérer
+#if CORE_DEBUG_LEVEL > 0
+    delay(5000);  // Laisse le temps à l'USB-JTAG de s'énumérer (debug uniquement)
+#endif
 
 #ifdef TUNE_FREQUENCY
     initTune();
@@ -311,7 +321,8 @@ void setup()
     mqtt.begin(WIFI_SSID, WIFI_PASSWORD);
 
     // NTP : configurer après connexion WiFi
-    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");  // UTC+1 (ajuste selon saison)
+    // configTzTime gère le DST automatiquement via la chaîne POSIX TIMEZONE (config.h)
+    configTzTime(TIMEZONE, "pool.ntp.org", "time.nist.gov");
     {
         struct tm t;
         uint32_t ts = millis();
@@ -392,8 +403,12 @@ void loop()
 
     // --- Interrogation périodique de chaque compteur --------
     for (int i = 0; i < METER_COUNT; i++) {
-        if (METERS[i].serial == 0) continue;          // Compteur non configuré
-        if (now - lastReadMs[i] < intervalMs) continue; // Pas encore l'heure
+        if (METERS[i].serial == 0) continue;             // Compteur non configuré
+        if (now - lastReadMs[i] < intervalMs) continue;  // Pas encore l'heure
+
+        // Espacement inter-compteurs non-bloquant : si un autre compteur vient
+        // d'être interrogé, on reporte à la prochaine itération de loop().
+        if (i > 0 && now - lastMeterReadMs < INTER_METER_DELAY_MS) continue;
 
         if (!EverBlu::withinTimeWindow()) {
             // Hors fenêtre : on reporte sans log répété
@@ -414,10 +429,8 @@ void loop()
             log_w("Compteur %d : aucune réponse", i + 1);
         }
 
-        lastReadMs[i] = now;
-
-        // Petite pause entre les deux compteurs pour ne pas se chevaucher
-        if (i == 0) delay(2000);
+        lastReadMs[i]    = now;
+        lastMeterReadMs  = now;  // marque le dernier appel radio pour l'espacement inter-compteurs
     }
 
     // --- Détection de fuite (toutes les 5 min) --------------

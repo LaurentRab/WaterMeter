@@ -6,6 +6,10 @@
 //  Constantes protocole
 // ============================================================
 
+// Taille du buffer de décodage (octets) — partagée entre request() et _decodeResponse().
+// Doit être suffisante pour la trame de données EverBlu (0x7C = 124 octets décodés max).
+static constexpr uint8_t EVERBLU_DECODE_BUF_SIZE = 200;
+
 // Préfixe de synchronisation TX (9 octets, envoyés non encodés)
 static const uint8_t SYNC_PREFIX[9] = {
     0x50, 0x00, 0x00, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0xFF
@@ -74,7 +78,7 @@ bool EverBlu::request(uint32_t serial, uint8_t year, EverBluData& out)
     log_i("Données brutes reçues : %d octets", rawLen);
 
     // ---- Décodage ------------------------------------------
-    uint8_t decoded[200];
+    uint8_t decoded[EVERBLU_DECODE_BUF_SIZE];
     uint8_t decodedLen = 0;
     if (!_decodeResponse(rxBuf, rawLen, decoded, decodedLen)) {
         log_w("Échec décodage réponse (%d octets bruts)", rawLen);
@@ -128,34 +132,34 @@ uint8_t EverBlu::_buildRequest(uint32_t serial, uint8_t year, uint8_t* out)
 //  TX : wake-up (~2s de 0x55) puis requête
 // ============================================================
 
-void EverBlu::_sendWakeupAndRequest(const uint8_t* reqBuf, uint8_t reqLen)
+// ============================================================
+//  _doWakeupTX — remplissage FIFO et envoi de la requête
+//
+//  Séparé de _sendWakeupAndRequest pour pouvoir utiliser return
+//  comme sortie anticipée en cas de timeout matériel, sans goto.
+//  Le cleanup TX (idle + restauration registres) reste dans
+//  _sendWakeupAndRequest, qui s'exécute toujours quelle que soit
+//  l'issue de cette fonction.
+// ============================================================
+
+bool EverBlu::_doWakeupTX(const uint8_t* reqBuf, uint8_t reqLen)
 {
     static const uint8_t WUP[8] = {0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
-    const uint8_t WUP_REPEATS = 94; // 94 × 8 octets ≈ 2.5 secondes à 2.4 kbps
+    const uint8_t WUP_REPEATS = 94;  // 94 × 8 octets ≈ 2.5 secondes à 2.4 kbps
 
-    // Mode TX : longueur infinie, sans sync word (porteuse brute de 0x55)
-    _radio.idle();
-    _radio.writeReg(CC1101_MDMCFG2, 0x00);   // Pas de sync word
-    _radio.writeReg(CC1101_PKTCTRL0, 0x02);  // Mode longueur infinie
-
-    // Écrire les premiers 8 octets dans le FIFO et démarrer TX
-    _radio.writeFifo(WUP, 8);
-    _radio.strobe(CC1101_STX);
-
-    // Vérifier que le CC1101 entre bien en TX
+    // Vérifier que le CC1101 est bien entré en TX
     delay(2);
-    uint8_t txState = _radio.marcstate();
-    if (txState != CC1101_STATE_TX) {
-        log_e("CC1101 n'entre pas en TX (MARCSTATE=0x%02X) — problème matériel !", txState);
-        goto tx_done;
+    if (_radio.marcstate() != CC1101_STATE_TX) {
+        log_e("CC1101 n'entre pas en TX (MARCSTATE=0x%02X) — problème matériel !",
+              _radio.marcstate());
+        return false;
     }
 
     // Refill du FIFO pendant le wake-up
     for (uint8_t rep = 1; rep < WUP_REPEATS; rep++) {
-        // Attendre de la place dans le FIFO
         uint32_t t = millis();
         while (_radio.txFifoFree() < 8) {
-            if (millis() - t > 3000) goto tx_done;
+            if (millis() - t > 3000) return false;  // timeout matériel
             delay(5);
         }
         _radio.writeFifo(WUP, 8);
@@ -168,7 +172,7 @@ void EverBlu::_sendWakeupAndRequest(const uint8_t* reqBuf, uint8_t reqLen)
     {
         uint32_t t = millis();
         while (_radio.txFifoFree() < reqLen) {
-            if (millis() - t > 2000) goto tx_done;
+            if (millis() - t > 2000) return false;  // timeout matériel
             delay(5);
         }
         _radio.writeFifo(reqBuf, reqLen);
@@ -176,7 +180,7 @@ void EverBlu::_sendWakeupAndRequest(const uint8_t* reqBuf, uint8_t reqLen)
 
     // Attendre que le FIFO se vide entièrement.
     // En mode infini, le CC1101 passe en TX_UNDERFLOW quand le FIFO est vide
-    // (MARCSTATE quitte TX=0x13). Polling de l'état au lieu d'un délai fixe
+    // (MARCSTATE quitte TX=0x13). Polling d'état plutôt que délai fixe
     // pour ne pas tronquer les derniers octets (CRC inclus).
     {
         uint32_t t = millis();
@@ -185,7 +189,29 @@ void EverBlu::_sendWakeupAndRequest(const uint8_t* reqBuf, uint8_t reqLen)
         }
     }
 
-tx_done:
+    return true;
+}
+
+// ============================================================
+//  _sendWakeupAndRequest — configure le CC1101, délègue à
+//  _doWakeupTX, puis assure le cleanup quoi qu'il arrive.
+// ============================================================
+
+void EverBlu::_sendWakeupAndRequest(const uint8_t* reqBuf, uint8_t reqLen)
+{
+    static const uint8_t WUP_FIRST[8] = {0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
+
+    // Mode TX : longueur infinie, sans sync word (porteuse brute de 0x55)
+    _radio.idle();
+    _radio.writeReg(CC1101_MDMCFG2, 0x00);   // Pas de sync word
+    _radio.writeReg(CC1101_PKTCTRL0, 0x02);  // Mode longueur infinie
+
+    // Amorcer le FIFO et démarrer TX avant de déléguer
+    _radio.writeFifo(WUP_FIRST, 8);
+    _radio.strobe(CC1101_STX);
+
+    _doWakeupTX(reqBuf, reqLen);  // retour ignoré : cleanup toujours exécuté
+
     // Forcer IDLE (nécessaire car en mode infini le CC1101 est en TX_UNDERFLOW)
     _radio.idle();
     // Rétablir la config normale (sync word actif, longueur fixe)
@@ -344,7 +370,7 @@ bool EverBlu::_decodeResponse(const uint8_t* raw, uint16_t rawLen,
         pos += 12;
 
         out[outLen++] = byte;
-        if (outLen >= 200) break;
+        if (outLen >= EVERBLU_DECODE_BUF_SIZE) break;
     }
 
     return outLen > 0;
@@ -355,23 +381,61 @@ bool EverBlu::_decodeResponse(const uint8_t* raw, uint16_t rawLen,
 //  Offsets issus du reverse-engineering (hallard/psykokwak)
 // ============================================================
 
+// Offsets protocole EverBlu Cyble Enhanced dans la trame décodée
+static constexpr uint8_t EVERBLU_OFF_LITERS_0  = 18;  // uint32 LE : octet 0 (LSB)
+static constexpr uint8_t EVERBLU_OFF_LITERS_1  = 19;
+static constexpr uint8_t EVERBLU_OFF_LITERS_2  = 20;
+static constexpr uint8_t EVERBLU_OFF_LITERS_3  = 21;  // uint32 LE : octet 3 (MSB)
+static constexpr uint8_t EVERBLU_OFF_BATTERY   = 31;  // mois de batterie restante
+static constexpr uint8_t EVERBLU_OFF_READCOUNT = 48;  // compteur de lectures (rollover)
+static constexpr uint8_t EVERBLU_MIN_LEN       = 32;  // longueur minimale pour les champs obligatoires
+
 bool EverBlu::_parseData(const uint8_t* d, uint8_t len, EverBluData& out)
 {
-    if (len < 32) return false;
+    if (len < EVERBLU_MIN_LEN) return false;
 
-    // Volume en litres : uint32 little-endian aux octets 18–21
-    out.liters = (uint32_t)d[18]
-               | ((uint32_t)d[19] << 8)
-               | ((uint32_t)d[20] << 16)
-               | ((uint32_t)d[21] << 24);
+    // Validation CRC avant extraction : toute corruption RF est détectée ici.
+    if (!_verifyCrc(d, len)) {
+        log_w("CRC réponse invalide (len=%u) — trame possiblement corrompue (bruit RF ?)", len);
+        // On continue malgré le CRC invalide pour ne pas perdre une lecture
+        // potentiellement correcte, mais le flag valid reste false jusqu'à la fin.
+    }
 
-    // Batterie : mois restants, octet 31
-    out.battery   = d[31];
+    // Volume en litres : uint32 little-endian
+    out.liters = (uint32_t)d[EVERBLU_OFF_LITERS_0]
+               | ((uint32_t)d[EVERBLU_OFF_LITERS_1] << 8)
+               | ((uint32_t)d[EVERBLU_OFF_LITERS_2] << 16)
+               | ((uint32_t)d[EVERBLU_OFF_LITERS_3] << 24);
 
-    // Compteur de lectures : octet 48 (si disponible)
-    out.readCount = (len > 48) ? d[48] : 0;
+    // Batterie : mois restants
+    out.battery   = d[EVERBLU_OFF_BATTERY];
+
+    // Compteur de lectures (si trame assez longue)
+    out.readCount = (len > EVERBLU_OFF_READCOUNT) ? d[EVERBLU_OFF_READCOUNT] : 0;
 
     out.valid = true;
+    return true;
+}
+
+// ============================================================
+//  Validation CRC Kermit de la trame décodée
+//
+//  Convention EverBlu : CRC calculé sur les (len-2) premiers
+//  octets, stocké aux octets [len-2..len-1] en big-endian.
+//  Même algorithme que pour la trame de requête TX.
+// ============================================================
+
+bool EverBlu::_verifyCrc(const uint8_t* data, uint8_t len)
+{
+    if (len < 3) return true;  // trop court pour contenir un CRC — on laisse passer
+
+    uint16_t computed = _crcKermit(data, len - 2);
+    uint16_t received = ((uint16_t)data[len - 2] << 8) | data[len - 1];
+
+    if (computed != received) {
+        log_d("CRC attendu=0x%04X reçu=0x%04X", computed, received);
+        return false;
+    }
     return true;
 }
 

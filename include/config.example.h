@@ -61,6 +61,15 @@
 // #define METER_3_FREQ_MHZ  433.82f
 // #define METER_4_FREQ_MHZ  433.82f
 
+// --- Fuseau horaire -----------------------------------------
+// Chaîne POSIX TZ : le DST (heure d'été/hiver) est géré automatiquement.
+// France / Belgique / Suisse romande :
+//   CET-1CEST,M3.5.0,M10.5.0/3  → UTC+1 hiver, UTC+2 été
+// Autres exemples :
+//   GMT0BST,M3.5.0/1,M10.5.0    → Royaume-Uni
+//   EST5EDT,M3.2.0,M11.1.0      → Est USA
+#define TIMEZONE  "CET-1CEST,M3.5.0,M10.5.0/3"
+
 // --- Interrogation -------------------------------------------
 // Intervalle entre deux lectures (minutes)
 // Le compteur ne repond qu'entre 06:00 et 18:59 !

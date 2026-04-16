@@ -44,6 +44,11 @@ private:
     // ---- Phase TX ------------------------------------------
     void _sendWakeupAndRequest(const uint8_t* reqBuf, uint8_t reqLen);
 
+    // Exécute le remplissage FIFO du wake-up puis envoie reqBuf.
+    // Retourne false si un timeout matériel survient (le cleanup TX
+    // reste à la charge de _sendWakeupAndRequest).
+    bool _doWakeupTX(const uint8_t* reqBuf, uint8_t reqLen);
+
     // Construit le buffer de requête dans out (39 octets max)
     uint8_t _buildRequest(uint32_t serial, uint8_t year, uint8_t* out);
 
@@ -72,6 +77,13 @@ private:
     // ---- CRC Kermit ----------------------------------------
     // Poly 0x8408, init 0x0000, résultat : bytes swappés
     uint16_t _crcKermit(const uint8_t* data, uint8_t len);
+
+    // ---- Validation CRC réponse ----------------------------
+    // Vérifie le CRC Kermit d'une trame décodée.
+    // Convention protocole EverBlu : CRC sur les (len-2) premiers
+    // octets, stocké aux octets [len-2] et [len-1] (big-endian).
+    // Retourne true si valide, false si corruption détectée.
+    bool _verifyCrc(const uint8_t* data, uint8_t len);
 
     // ---- Helpers bits --------------------------------------
     // Lit 1 bit à la position pos (MSB-first) dans buf

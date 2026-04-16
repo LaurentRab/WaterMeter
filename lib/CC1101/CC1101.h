@@ -45,13 +45,8 @@ static constexpr uint8_t CC1101_TEST2    = 0x2C;
 static constexpr uint8_t CC1101_TEST1    = 0x2D;
 static constexpr uint8_t CC1101_TEST0    = 0x2E;
 
-// ---- Registres de statut (lire avec READ|BURST) ------------
-static constexpr uint8_t CC1101_RSSI      = 0x34;
-static constexpr uint8_t CC1101_MARCSTATE = 0x35;
-static constexpr uint8_t CC1101_TXBYTES   = 0x3A;
-static constexpr uint8_t CC1101_RXBYTES   = 0x3B;
-
-// ---- Strobes -----------------------------------------------
+// ---- Strobes (0x30–0x3D) -----------------------------------
+// Envoyés en accès direct (sans READ ni BURST) via strobe().
 static constexpr uint8_t CC1101_SRES  = 0x30;
 static constexpr uint8_t CC1101_SRX   = 0x34;
 static constexpr uint8_t CC1101_STX   = 0x35;
@@ -59,6 +54,21 @@ static constexpr uint8_t CC1101_SIDLE = 0x36;
 static constexpr uint8_t CC1101_SFRX  = 0x3A;
 static constexpr uint8_t CC1101_SFTX  = 0x3B;
 static constexpr uint8_t CC1101_SNOP  = 0x3D;
+
+// ---- Registres de statut (0x30–0x3D) -----------------------
+// ATTENTION : les adresses 0x30–0x3D sont PARTAGÉES entre les
+// strobes ci-dessus et les registres de statut ci-dessous.
+// Le CC1101 les distingue par le bit BURST (bit 6) de l'octet
+// d'adresse SPI :
+//   strobe       → SPI.transfer(addr)            (pas de BURST)
+//   registre statut → SPI.transfer(addr | 0x40)  (BURST=1)
+//
+// Règle : utiliser UNIQUEMENT readStatus() pour ces registres,
+// jamais readReg() ni strobe().
+static constexpr uint8_t CC1101_RSSI      = 0x34;  // même adresse que CC1101_SRX
+static constexpr uint8_t CC1101_MARCSTATE = 0x35;  // même adresse que CC1101_STX
+static constexpr uint8_t CC1101_TXBYTES   = 0x3A;  // même adresse que CC1101_SFRX
+static constexpr uint8_t CC1101_RXBYTES   = 0x3B;  // même adresse que CC1101_SFTX
 
 // ---- FIFO --------------------------------------------------
 static constexpr uint8_t CC1101_RXFIFO = 0x3F;
